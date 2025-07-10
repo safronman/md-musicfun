@@ -1,0 +1,264 @@
+import { Callout } from "nextra/components"
+
+# 1. Настройка приложения
+
+Чтобы сосредоточиться на изучении `RTK` сделаем базовые настройки для приложения
+
+## Настройка импортов / алиасов
+
+### Теория
+
+В файле `tsconfig.json` есть параметр `baseUrl` для указания корневой директории, относительно
+которой `TypeScript` будет разрешать пути к модулям.
+
+**Преимущества использования baseUrl:**
+
+- использование **абсолютных путей**, вместо относительных;
+- перемещение файлов и папок упрощается из-за **стабильности путей к модулям**;
+- **читаемый и понятный код**, т. к. пути к модулям явно указывают на их место в проекте.
+
+### Практика
+
+Откройте файл `tsconfig.app.json` и добавьте в `compilerOptions` свойства `baseUrl` и `paths`:
+
+```json filename="tsconfig.app.json" {3-6}
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+    /*...*/
+  },
+  "include": ["src"]
+}
+```
+
+- откройте файл `vite.config.ts` и добавьте в конфигурацию свойство [`resolve` с полем `alias`](https://vite.dev/config/shared-options#resolve-alias):
+
+```ts filename="vite.config.ts" {1, 8-12}
+import path from "path"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react-swc"
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@/": `${path.resolve(__dirname, "src")}/`,
+    },
+  },
+})
+```
+
+- для разрешения импорта `path` и переменной `__dirname` добавьте в `devDependencies` проекта типизацию `node`:
+
+```bash filename="Terminal"
+pnpm add @types/node -D
+```
+
+## Роутинг / Структура приложения
+
+Настроим в проекте базовый роутинг.
+
+Установите библиотеку для работы с роутингом [React Router](https://reactrouter.com):
+
+```bash filename="Terminal"
+pnpm add react-router
+```
+
+<Callout type={"warning"}>
+  В данном приложении будем использовать [Declarative mode](https://reactrouter.com/start/declarative/installation)
+</Callout>
+
+❗ Для того чтобы можно было работать с роутингом, обернем все наше приложение в `BrowserRouter` в компоненте `main.tsx`
+
+Мы будем работать с плейлистами. Давайте сразу заложим базовый роутинг и создадим главную (`MainPage`), страницу с
+плейлистами (`PlaylistsPage`), 404 страницу(`PageNotFound`) и добавим их в роутинг
+
+<Callout type={"warning"}>
+  Над архитектурой приложения сильно заморачиваться не будем, т.к. урок не про архитектуру. Но тем не менее чтобы код
+  можно было расширять без боли и добавлять новый функционал сделаем смесь из 2 подходов
+
+- [Structure Files as Feature Folders with Single-File
+  Logic](https://redux.js.org/style-guide/#structure-files-as-feature-folders-with-single-file-logic)
+
+- [FSD](https://feature-sliced.design/)
+
+</Callout>
+
+### MainPage
+
+```tsx filename="src/app/MainPage.tsx"
+export const MainPage = () => {
+  return (
+    <div>
+      <h1>Главная страница</h1>
+    </div>
+  )
+}
+```
+
+### PlaylistsPage
+
+```tsx filename="src/features/playlists/PlaylistsPage/PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  return (
+    <div>
+      <h1>Страница с плейлистами</h1>
+    </div>
+  )
+}
+```
+
+### PageNotFound
+
+```tsx filename="src/common/components/PageNotFound/PageNotFound.tsx"
+import s from "./PageNotFound.module.css"
+
+export const PageNotFound = () => {
+  return (
+    <>
+      <h1 className={s.title}>404</h1>
+      <h2 className={s.subtitle}>page not found</h2>
+    </>
+  )
+}
+```
+
+```css filename="src/common/components/PageNotFound/PageNotFound.module.css"
+.title {
+  text-align: center;
+  font-size: 250px;
+  margin: 0;
+}
+
+.subtitle {
+  text-align: center;
+  font-size: 50px;
+  margin: 0;
+  text-transform: uppercase;
+}
+```
+
+```tsx filename="src/common/routing/Routing.tsx"
+export const Path = {
+  Main: "/",
+  Playlists: "/playlists",
+  NotFound: "*",
+} as const
+
+export const Routing = () => (
+  <Routes>
+    <Route path={Path.Main} element={<MainPage />} />
+    <Route path={Path.Playlists} element={<PlaylistsPage />} />
+    <Route path={Path.NotFound} element={<PageNotFound />} />
+  </Routes>
+)
+```
+
+Остался последние шаги.
+Отрисуем `Routing.tsx` в `App.tsx`
+
+```tsx
+export const App = () => {
+  return (
+    <>
+      <Routing />
+    </>
+  )
+}
+```
+
+**Результат:** Меняя в `url` адрес будет рендериться нужная страница
+
+## Header
+
+Реализуем `Header` для того, чтобы навигироваться по приложению
+
+```tsx filename="src/common/components/Header/Header.tsx"
+import { NavLink } from "react-router"
+import { Path } from "@/common/routing/Routing"
+import s from "./Header.module.css"
+
+const navItems = [
+  { to: Path.Main, label: "Main" },
+  { to: Path.Playlists, label: "Playlists" },
+]
+
+export const Header = () => {
+  return (
+    <header className={s.container}>
+      <nav>
+        <ul className={s.list}>
+          {navItems.map((item) => (
+            <li key={item.to}>
+              <NavLink to={item.to} className={({ isActive }) => `link ${isActive ? s.activeLink : ""}`}>
+                {item.label}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </header>
+  )
+}
+```
+
+```css filename="src/common/components/Header/Header.module.css"
+.container {
+  border-bottom: 1px solid black;
+  padding-left: 100px;
+}
+
+.list {
+  display: flex;
+  gap: 40px;
+}
+
+.activeLink {
+  font-weight: bold;
+}
+```
+
+Отрисуем `Header.tsx` в `App.tsx`
+
+```tsx filename="App.tsx"
+export const App = () => {
+  return (
+    <>
+      <Header />
+      <Routing />
+    </>
+  )
+}
+```
+
+**Результат:** Теперь можем удобно навигироваться по нашему приложению 🚀
+
+## Layout
+
+Для того чтобы контент всех страниц не прижимался к левому боку, создадим для него базовую обертку.
+
+```css filename="src/app/App.module.css"
+.layout {
+  max-width: 1260px;
+  margin: 0 auto 200px;
+}
+```
+
+```tsx filename="src/app/App.tsx" {5}
+export const App = () => {
+  return (
+    <>
+      <Header />
+      <div className={s.layout}>
+        <Routing />
+      </div>
+    </>
+  )
+}
+```
+
+**Результат:** Контент основных страниц будет обернут в `layout` 🚀
