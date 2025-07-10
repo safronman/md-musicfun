@@ -2,9 +2,27 @@ import { Callout } from "nextra/components"
 
 # 2. RTK query
 
-## Server State vs Client State
+Установите [Redux Toolkit](https://redux-toolkit.js.org) и [React Redux](https://react-redux.js.org):
 
-![client vs server state](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/295b42fa-7ad6-488c-89f0-41ac86254c54_client-server-state.png.png)
+```bash filename="Terminal"
+pnpm add @reduxjs/toolkit react-redux
+```
+
+## Client State vs Server State
+
+| **Client State**                                                  | **Server State**                 |
+| :---------------------------------------------------------------- | :------------------------------- |
+| - Form fields entered by the user                                 | - Results of a database query    |
+| - Selected filters on the page                                    |                                  |
+| - Dark / light theme                                              |                                  |
+| - Local interface data, e.g., current page in pagination          |                                  |
+| - Data stored in local storage (LocalStorage, SessionStorage)     |                                  |
+| - Temporary state in a React component (useState)                 |                                  |
+| - Modal windows                                                   |                                  |
+| - Complex forms (wizard)                                          |                                  |
+|                                                                   |                                  |
+| **Tools for Client State**                                        | **Tools for Server State**       |
+| Redux Toolkit (slice) / useState / useReducer / Zustand / Context | RTK Query / TanStack Query / SWR |
 
 Разница между **Client State** и **Server State** заключается в способах хранения,
 обработки и управления информацией:
@@ -19,10 +37,15 @@ import { Callout } from "nextra/components"
 ## RTK query - теория
 
 <Callout type={"info"} emoji={"🔗"}>
-  - [RTK Query Quick Start](https://redux-toolkit.js.org/tutorials/rtk-query); - [RTK Query
-  Overview](https://redux-toolkit.js.org/rtk-query/overview); - [RTK Query
-  Basics](https://redux.js.org/tutorials/essentials/part-7-rtk-query-basics); - [RTK Query Advanced
-  Patterns](https://redux.js.org/tutorials/essentials/part-8-rtk-query-advanced).
+
+- [RTK Query Quick Start](https://redux-toolkit.js.org/tutorials/rtk-query);
+
+- [RTK Query Overview](https://redux-toolkit.js.org/rtk-query/overview);
+
+- [RTK Query Basics](https://redux.js.org/tutorials/essentials/part-7-rtk-query-basics);
+
+- [RTK Query Advanced Patterns](https://redux.js.org/tutorials/essentials/part-8-rtk-query-advanced)
+
 </Callout>
 
 `RTK Query` - библиотека для управления запросами к `API` и состоянием приложения в `React`-приложениях
@@ -47,24 +70,23 @@ import { Callout } from "nextra/components"
 
 [Queries](https://redux-toolkit.js.org/rtk-query/usage/queries) используются для получения данных с сервера.
 
-В файле `features/todolists/api/todolistsApi.ts` переименуйте `todolistsApi` на `_todolistsApi` (`Shift + F6`),
-а затем создайте новый объект `todolistsApi`. Перепишите получение тудулистов на `RTK query` согласно [документации](https://redux-toolkit.js.org/rtk-query/overview#basic-usage):
+[Базовое применение](https://redux-toolkit.js.org/rtk-query/overview#basic-usage)
 
-```ts filename="todolistsApi.ts" {2} /createApi/3 /reducerPath/2 /baseQuery/2 /endpoints/2 /<Todolist[], void>/ /useGetTodolistsQuery/
+```ts filename="todolistsApi.ts"
 // Во избежание ошибок импорт должен быть из `@reduxjs/toolkit/query/react`
+import type { PlaylistsResponse } from "@/features/playlists/api/playlistsApi.types.ts"
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react"
 
 // `createApi` - функция из `RTK Query`, позволяющая создать объект `API`
 // для взаимодействия с внешними `API` и управления состоянием приложения
-export const todolistsApi = createApi({
-  // `reducerPath` - имя `slice`, куда будут сохранены состояние и экшены для этого `API`
-  reducerPath: "todolistsApi",
+export const playlistsApi = createApi({
+  // `reducerPath` - имя куда будут сохранены состояние и экшены для этого `API`
+  reducerPath: "playlistsApi",
   // `baseQuery` - конфигурация для `HTTP-клиента`, который будет использоваться для отправки запросов
   baseQuery: fetchBaseQuery({
     baseUrl: import.meta.env.VITE_BASE_URL,
-    prepareHeaders: (headers) => {
-      headers.set("API-KEY", import.meta.env.VITE_API_KEY)
-      headers.set("Authorization", `Bearer ${localStorage.getItem(AUTH_TOKEN)}`)
+    headers: {
+      "API-KEY": import.meta.env.VITE_API_KEY,
     },
   }),
   // `endpoints` - метод, возвращающий объект с эндпоинтами для `API`, описанными
@@ -73,46 +95,73 @@ export const todolistsApi = createApi({
   endpoints: (build) => ({
     // Типизация аргументов (<возвращаемый тип, тип query аргументов (`QueryArg`)>)
     // `query` по умолчанию создает запрос `get` и указание метода необязательно
-    getTodolists: build.query<any[], void>({
-      query: () => "todo-lists",
+    fetchPlaylists: build.query<PlaylistsResponse, void>({
+      query: () => {
+        return {
+          method: "get",
+          url: `playlists`,
+        }
+      },
     }),
   }),
 })
 
 // `createApi` создает объект `API`, который содержит все эндпоинты в виде хуков,
 // определенные в свойстве `endpoints`
-export const { useGetTodolistsQuery } = todolistsApi
+export const { useFetchPlaylistsQuery } = playlistsApi
 ```
 
-## Подключение к store
+## Store
+
+### 1. Настройка store
 
 <Callout type={"info"} emoji={"🔗"}>
   - [Configure the Store](https://redux-toolkit.js.org/rtk-query/overview#configure-the-store)
 </Callout>
 
-В файле `store.ts` подключите `todolistsApi`, добавьте `middleware` для использования дополнительных функций `RTK Query`:
+В файле `store.ts` подключите `playlistsApi`, добавьте `middleware` для использования дополнительных функций `RTK Query`:
 кэширование, инвалидация и pooling, и установите `setupListeners` для подключения слушателя событий фокуса (`refetchOnFocus`)
-и повторного подключения (`refetchOnReconnect`), чтобы автоматически перезагружать данные
-при возвращении на страницу или восстановлении подключения:
+и повторного подключения (`refetchOnReconnect`), чтобы автоматически перезагружать данные при возвращении на страницу
+или восстановлении подключения:
 
-```ts filename="store.ts" {7, 9, 12}
+```ts filename="store.ts"
+import { configureStore } from "@reduxjs/toolkit"
+import { setupListeners } from "@reduxjs/toolkit/query"
+import { playlistsApi } from "@/features/playlists/api/playlistsApi.ts"
+
 export const store = configureStore({
   reducer: {
-    [tasksSlice.name]: tasksReducer,
-    [todolistsSlice.name]: todolistsReducer,
-    [appSlice.name]: appReducer,
-    [authSlice.name]: authReducer,
-    [todolistsApi.reducerPath]: todolistsApi.reducer,
+    [playlistsApi.reducerPath]: playlistsApi.reducer,
   },
-  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(todolistsApi.middleware),
+  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(playlistsApi.middleware),
 })
 
 setupListeners(store.dispatch)
 ```
 
-Откройте `redux devtools` и убедитесь что `todolistsApi` подключен:
+### 2. Provider
 
-![devtools](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/1d8c2185-2b9b-4711-87c4-a2f40ba6720f_18-1-1.png)
+Чтобы в компонентах можно было обращаться к `store`, нужно обернуть приложение [`Provider'ом`](https://redux-toolkit.js.org/tutorials/quick-start#provide-the-redux-store-to-react)
+с переданным ему `store` в файле `main.tsx`:
+
+```tsx filename="main.tsx" {3,5}
+createRoot(document.getElementById("root")!).render(
+  <BrowserRouter>
+    <Provider store={store}>
+      <App />
+    </Provider>
+  </BrowserRouter>,
+)
+```
+
+### 3. Redux devtools
+
+- Установите [Redux devtools](https://chromewebstore.google.com/detail/redux-devtools/lmhkpmbekcpmknklioeibfkpmmfibljd)
+- Откройте панель разрабочитка и убедитесь что `playlistsApi` подключен:
+
+![devtools](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/46e157ab-81ba-4e23-924d-6455a44b0200_redux-devtools.png)
+
+# --- ❗❗❗ ---
 
 ## Query хук
 

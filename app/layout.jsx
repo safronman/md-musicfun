@@ -11,7 +11,7 @@ export const metadata = {
 
 const navbar = (
   <Navbar
-    logo={<b>IT-incubator 🚀</b>}
+    logo={<b>IT-incubator 🚀 (❗ Добавить i18n)</b>}
     // ... Your additional navbar options
   />
 )
