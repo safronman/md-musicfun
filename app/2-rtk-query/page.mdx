@@ -182,10 +182,10 @@ export const PlaylistsPage = () => {
     <div>
       <h1>Playlists page</h1>
       <div>
-        {data?.data.map((tl) => {
+        {data?.data.map((playlist) => {
           return (
-            <div>
-              <div>title: {tl.attributes.title}</div>
+            <div key={playlist.id}>
+              <div>title: {playlist.attributes.title}</div>
             </div>
           )
         })}
@@ -223,15 +223,15 @@ export const PlaylistsPage = () => {
   const { data } = useFetchPlaylistsQuery()
 
   return (
-    <div>
+    <div className={s.container}>
       <h1>Playlists page</h1>
-      <div className={s.container}>
-        {data?.data.map((tl) => {
+      <div className={s.items}>
+        {data?.data.map((playlist) => {
           return (
-            <div className={s.item}>
-              <div>title: {tl.attributes.title}</div>
-              <div>description: {tl.attributes.description}</div>
-              <div>userName: {tl.attributes.user.name}</div>
+            <div className={s.item} key={playlist.id}>
+              <div>title: {playlist.attributes.title}</div>
+              <div>description: {playlist.attributes.description}</div>
+              <div>userName: {playlist.attributes.user.name}</div>
             </div>
           )
         })}
@@ -243,6 +243,12 @@ export const PlaylistsPage = () => {
 
 ```css filename="PlaylistsPage.module.css"
 .container {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.items {
   display: flex;
   gap: 30px;
   flex-wrap: wrap;
@@ -256,4 +262,4 @@ export const PlaylistsPage = () => {
 }
 ```
 
-**Результат:** Теперь список плейлистов выглядит более привелекательно 🚀
+**Результат:** Теперь список плейлистов выглядит более привлекательно 🚀

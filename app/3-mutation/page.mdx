@@ -1,1 +1,271 @@
+import { Callout } from "nextra/components"
+
 # 3. Mutation
+
+[Мутации](https://redux-toolkit.js.org/rtk-query/usage/mutations) используются для инициирования обновлений данных на сервере и в кеше на клиенте. При успешном выполнении
+мутации можно сделать данные в кеше недействительными и запустить их перезапрос.
+
+## Создание плейлиста
+
+### Api
+
+Реализуем логику создания плейлиста согласно [документации](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_createPlaylist).
+
+При изменении данных будем использовать метод `mutation` у `build`:
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = createApi({
+  /*...*/
+  endpoints: (build) => ({
+    /*...*/
+    createPlaylist: build.mutation<{ data: Playlist }, CreatePlaylistArgs>({
+      query: (body) => ({
+        url: "playlists",
+        method: "post",
+        body,
+      }),
+    }),
+  }),
+})
+
+export const { useFetchPlaylistsQuery, useCreatePlaylistMutation } = playlistsApi
+```
+
+```ts filename="playlistsApi.types.ts"
+/*...*/
+// Arguments
+export type CreatePlaylistArgs = {
+  title: string
+  description: string
+}
+```
+
+### UI
+
+Для того чтобы создать новый плейлист, нам необходимо создать форму куда будем вводить данные и потом передавать их
+на сервер.
+Для создания формы установим библиотеку [react-hook-form](https://react-hook-form.com/)
+
+```bash filename="Terminal"
+pnpm add react-hook-form
+```
+
+Создадим форму и выведем данные в консоль
+
+```tsx filename="src/features/playlists/PlaylistsPage/CreatePlaylistForm/CreatePlaylistForm.tsx"
+export const CreatePlaylistForm = () => {
+  const { register, handleSubmit } = useForm<CreatePlaylistArgs>()
+
+  const onSubmit: SubmitHandler<CreatePlaylistArgs> = (data) => {
+    console.log(data)
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <h2>Create new playlist</h2>
+      <div>
+        <input {...register("title")} placeholder={"title"} />
+      </div>
+      <div>
+        <input {...register("description")} placeholder={"description"} />
+      </div>
+      <button>create playlist</button>
+    </form>
+  )
+}
+```
+
+```tsx filename="PlaylistsPage.tsx" {7}
+export const PlaylistsPage = () => {
+  const { data } = useFetchPlaylistsQuery()
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+![create-playlist-form-console](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/5c0eaed0-8d0a-4675-aaff-5e42fa99fde0_create-playlist-form-console.png)
+
+**Результат:** Введем данные в форму и убедимся что данные собираются и выводятся в консоль 🚀
+
+### useMutation
+
+Сгенерированный хук [useMutation](https://redux-toolkit.js.org/rtk-query/api/created-api/hooks#usemutation) возвращает массив:
+
+```tsx
+const [createPlaylist, result] = useCreatePlaylistMutation()
+```
+
+1. Первый параметр - функция для инициации запроса;
+2. Второй параметр - объект с данными о запросе.
+
+```tsx filename="CreatePlaylistForm.tsx" {4,7}
+export const CreatePlaylistForm = () => {
+  const { register, handleSubmit } = useForm<CreatePlaylistArgs>()
+
+  const [createPlaylist] = useCreatePlaylistMutation()
+
+  const onSubmit: SubmitHandler<CreatePlaylistArgs> = (data) => {
+    createPlaylist(data)
+  }
+
+  /*...*/
+}
+```
+
+Теперь давайте сделаем запрос и посмотрим на результат
+
+![401-error](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/6c0f0cee-49f3-42d5-a183-3523ce725b49_401-error.png)
+
+Эта ошибка означает что создавать тудулисты может только авторизованный пользователь. Чтобы бекенд понял кто нему
+стучится, необходимо в `Header` передать `accessToken` полученный при логинизации.
+
+<Callout type={'warning'}>
+
+Тема авторизации довольно сложная и не хочется сейчас начинать с нее. Поэтому мы в
+[залогинимся при помощи Swagger](https://musicfun.it-incubator.app/api#/Authentication/AuthController_login), получим
+`accessToken` и прикрепим его к запрос.
+
+❗Авторизациею в `RTK query` разберем позже.
+
+</Callout>
+
+Полученный `accessToken` положим в `.env.local`
+
+```env filename=".env.local" {3}
+VITE_BASE_URL=https://musicfun.it-incubator.app/api/1.0
+VITE_API_KEY=xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxx
+VITE_ACCESS_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxIiwibG9naW4iOiJzYWZyb25tYW4iLCJpYXQiOjE3NTIyMzk2OTIsImV4cCI6MTc1MjMyNjA5Mn0.bfQs5OgJKwKBQj8uk1uOEW1I7eIyWKtQTOXMvB0yxoo
+```
+
+`accessToken` нужно прикреплять ко всем запросам, поэтому доработаем `playlistsApi.ts`
+
+```tsx filename="playlistsApi.ts" {8-11}
+export const playlistsApi = createApi({
+  reducerPath: "playlistsApi",
+  baseQuery: fetchBaseQuery({
+    baseUrl: import.meta.env.VITE_BASE_URL,
+    headers: {
+      "API-KEY": import.meta.env.VITE_API_KEY,
+    },
+    prepareHeaders: (headers) => {
+      headers.set("Authorization", `Bearer ${import.meta.env.VITE_ACCESS_TOKEN}`)
+      return headers
+    },
+  }),
+  /*...*/
+})
+```
+
+Еще раз пробуем создать плейлист. Открываем панель разработчика и видим, что запрос успешно проходит
+
+![create-playlust-success](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/50be3f04-1277-4989-9724-211d6704010e_create-playlust-success.png)
+
+`accessToken` цепляется в `Headers`
+
+![accessToken](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/98cd9732-7f5e-4b5e-95c6-8a07c4e22def_accessToken.png)
+
+**Результат:** если сделать запрос на добавление плейлист и обновить страницу, можно убедиться в правильности
+написанной логики 🚀
+
+## Удаление плейлиста
+
+Реализуем логику удаления плейлиста согласно [документации](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_deletePlaylist).
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = createApi({
+  /*...*/
+  endpoints: (build) => ({
+    /*...*/
+    deletePlaylist: build.mutation<void, string>({
+      query: (playlistId) => ({
+        url: `playlists/${playlistId}`,
+        method: "delete",
+      }),
+    }),
+  }),
+})
+```
+
+В компоненте `PlaylistsPage.tsx` используйте сгенерированный хук `useDeletePlaylistMutation`:
+
+```tsx filename="PlaylistsPage.tsx" {3, 5-9, 22}
+export const PlaylistsPage = () => {
+  const { data } = useFetchPlaylistsQuery()
+  const [deletePlaylist] = useDeletePlaylistMutation()
+
+  const deletePlaylistHandler = (playlistId: string) => {
+    if (confirm("Вы уверены, что хотите удалить плейлист?")) {
+      deletePlaylist(playlistId)
+    }
+  }
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <div className={s.items}>
+        {data?.data.map((playlist) => {
+          return (
+            <div className={s.item} key={playlist.id}>
+              <div>title: {playlist.attributes.title}</div>
+              <div>description: {playlist.attributes.description}</div>
+              <div>userName: {playlist.attributes.user.name}</div>
+              <button onClick={() => deletePlaylistHandler(playlist.id)}>delete</button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+**Результат:** если сделать запрос на удаление плейлиста и обновить страницу, можно убедиться в правильности
+написанной логики 🚀
+
+## Обновление плейлиста
+
+Реализуем логику удаления плейлиста согласно [документации](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_updatePlaylist).
+
+```ts filename="todolistsApi.ts" {5-11} /useUpdateTodolistTitleMutation/
+export const todolistsApi = createApi({
+  /*...*/
+  endpoints: (build) => ({
+    /*...*/
+    updateTodolistTitle: build.mutation<BaseResponse, { id: string; title: string }>({
+      query: ({ id, title }) => ({
+        url: `todo-lists/${id}`,
+        method: "PUT",
+        body: { title },
+      }),
+    }),
+  }),
+})
+
+export const {
+  useGetTodolistsQuery,
+  useAddTodolistMutation,
+  useRemoveTodolistMutation,
+  useUpdateTodolistTitleMutation,
+} = todolistsApi
+```
+
+В компоненте `TodolistTitle` используйте сгенерированный хук `useUpdateTodolistTitleMutation` и удалите `useAppDispatch`:
+
+```ts filename="TodolistTitle.tsx"
+export const TodolistTitle = ({ todolist }: Props) => {
+  const [updateTodolistTitle] = useUpdateTodolistTitleMutation()
+
+  const updateTodolistHandler = (title: string) => {
+    updateTodolistTitle({ id, title })
+  }
+}
+```
+
+**Результат:** если сделать запрос на обновление названия тудулиста и обновить страницу, можно убедиться в правильности написанной логики 🚀
