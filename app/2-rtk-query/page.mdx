@@ -72,7 +72,7 @@ pnpm add @reduxjs/toolkit react-redux
 
 [Базовое применение](https://redux-toolkit.js.org/rtk-query/overview#basic-usage)
 
-```ts filename="todolistsApi.ts"
+```ts filename="playlistsApi.ts"
 // Во избежание ошибок импорт должен быть из `@reduxjs/toolkit/query/react`
 import type { PlaylistsResponse } from "@/features/playlists/api/playlistsApi.types.ts"
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react"
@@ -165,36 +165,37 @@ createRoot(document.getElementById("root")!).render(
 ### 3. Redux devtools
 
 - Установите [Redux devtools](https://chromewebstore.google.com/detail/redux-devtools/lmhkpmbekcpmknklioeibfkpmmfibljd)
-- Откройте панель разрабочитка и убедитесь что `playlistsApi` подключен:
+- Откройте панель разработчика и убедитесь что `playlistsApi` подключен:
 
 ![devtools](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/46e157ab-81ba-4e23-924d-6455a44b0200_redux-devtools.png)
 
-# --- ❗❗❗ ---
-
 ## Query хук
 
-В компоненте `Todolists` вызовите автоматически сгенерированный хук `useGetTodolistsQuery`,
-а `useEffect`, `useAppDispatch` и `useAppSelector` удалите:
+В компоненте `PlaylistsPage.tsx` вызовите автоматически сгенерированный хук `useFetchPlaylistsQuery`. И отрисуйте
+полученные данные
 
-```ts filename="Todolists.tsx" {2} /todolists?/
-export const Todolists = () => {
-  const { data: todolists } = useGetTodolistsQuery()
+```tsx filename="PlaylistsPage.tsx" {2}
+export const PlaylistsPage = () => {
+  const { data } = useFetchPlaylistsQuery()
 
   return (
-    <>
-      {todolists?.map((todolist) => (
-        /*...*/
-      ))}
-    </>
+    <div>
+      <h1>Playlists page</h1>
+      <div>
+        {data?.data.map((tl) => {
+          return (
+            <div>
+              <div>title: {tl.attributes.title}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 ```
 
-**Результат:**
-
-- для запроса на сервер больше не нужен `useEffect` с `dispatch`;
-- данные достаются их хука без использования селектора;
-- тудулисты получены и отрисованы 🚀
+**Результат:** Плейлисты получены с сервера и отрисованы 🚀
 
 ### Возвращаемые значения из хука
 
@@ -212,3 +213,47 @@ export const Todolists = () => {
 
 - `queryArg` - данные для запроса;
 - `queryOptions` - объект с настройками для управления процессом получения данных.
+
+## Отображение плейлистов
+
+Добавим больше информации о плейлистах в разметке и настроим базовые стили
+
+```tsx filename="PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  const { data } = useFetchPlaylistsQuery()
+
+  return (
+    <div>
+      <h1>Playlists page</h1>
+      <div className={s.container}>
+        {data?.data.map((tl) => {
+          return (
+            <div className={s.item}>
+              <div>title: {tl.attributes.title}</div>
+              <div>description: {tl.attributes.description}</div>
+              <div>userName: {tl.attributes.user.name}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+```css filename="PlaylistsPage.module.css"
+.container {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.item {
+  width: 240px;
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+```
+
+**Результат:** Теперь список плейлистов выглядит более привелекательно 🚀
