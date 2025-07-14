@@ -1,0 +1,249 @@
+import { Callout } from "nextra/components"
+
+# 6. Работа с изображениями
+
+## Добавление обложки
+
+Скачайте картинку по умолчанию (можно использовать свое изображение) и положите ее в директорию (`assets/images/`)
+
+[default-playlist-cover](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/1fdbddc4-8c66-4403-865a-ac3329541c9e_default-playlist-cover.png)
+
+### originalCover
+
+Отобразим картинку в плейлисте
+
+```tsx filename="PlaylistItem.tsx" {11-12, 16}
+import defaultCover from "@/assets/images/default-playlist-cover.png"
+import s from "./PlaylistItem.module.css"
+
+type Props = {
+  playlist: Playlist
+  deletePlaylist: (playlistId: string) => void
+  editPlaylist: (playlist: Playlist) => void
+}
+
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  const originalCover = playlist.attributes.images.main?.find((img) => img.type === "original")
+  const src = originalCover ? originalCover?.url : defaultCover
+
+  return (
+    <div>
+      <img src={src} alt={"cover"} width={"100px"} className={s.cover} />
+      <div>title: {playlist.attributes.title}</div>
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+```css filename="PlaylistItem.module.css"
+.cover {
+  width: 240px;
+  height: 240px;
+  object-fit: cover;
+}
+```
+
+### useUploadPlaylistCoverMutation
+
+Реализуем логику загрузки изображения плейлиста согласно [документации](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_uploadMainImage)
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    uploadPlaylistCover: build.mutation<Images, { playlistId: string; file: File }>({
+      query: ({ playlistId, file }) => {
+        const formData = new FormData()
+        formData.append("file", file)
+        return {
+          url: `playlists/${playlistId}/images/main`,
+          method: "post",
+          body: formData,
+        }
+      },
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+### Логика загрузки изображения
+
+```tsx filename="PlaylistItem.tsx" {5, 7-25, 29-30}
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  const originalCover = playlist.attributes.images.main?.find((img) => img.type === "original")
+  const src = originalCover ? originalCover?.url : defaultCover
+
+  const [uploadCover] = useUploadPlaylistCoverMutation()
+
+  const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
+    const maxSize = 5 * 1024 * 1024
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif"]
+
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (file.size > maxSize) {
+      alert(`Файл слишком большой (макс. ${Math.round(maxSize / 1024)} КБ)`)
+      return
+    }
+
+    if (!allowedTypes.includes(file.type)) {
+      alert("Разрешены только изображения JPEG, PNG или GIF")
+      return
+    }
+
+    uploadCover({ playlistId: playlist.id, file })
+  }
+
+  return (
+    <div>
+      <img src={src} alt={"cover"} width={"100px"} className={s.cover} />
+      <input type="file" accept="image/jpeg,image/png,image/gif" onChange={uploadCoverHandler} />
+      <div>title: {playlist.attributes.title}</div>
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+**Результат:** обложка успешно загружается 🚀
+
+## Удаление обложки
+
+Реализуем логику удаления обложки согласно [документации](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_deleteTrackCover)
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    deletePlaylistCover: build.mutation<void, { playlistId: string }>({
+      query: ({ playlistId }) => ({ url: `playlists/${playlistId}/images/main`, method: "delete" }),
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+```tsx filename="PlaylistItem.tsx" {6, 12-14, 20}
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  const originalCover = playlist.attributes.images.main?.find((img) => img.type === "original")
+  const src = originalCover ? originalCover?.url : defaultCover
+
+  const [uploadCover] = useUploadPlaylistCoverMutation()
+  const [deleteCover] = useDeletePlaylistCoverMutation()
+
+  const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
+    /*...*/
+  }
+
+  const deleteCoverHandler = () => {
+    deleteCover({ playlistId: playlist.id })
+  }
+
+  return (
+    <div>
+      <img src={src} alt={"cover"} width={"100px"} className={s.cover} />
+      <input type="file" accept="image/jpeg,image/png,image/gif" onChange={uploadCoverHandler} />
+      {originalCover && <button onClick={() => deleteCoverHandler()}>delete cover</button>}
+
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+**Результат:** обложка удаляется 🚀
+
+## Рефакторинг
+
+- `PlaylistCover.tsx`
+
+```tsx filename="PlaylistCover.tsx"
+type Props = {
+  playlistId: string
+  images: Images
+}
+
+export const PlaylistCover = ({ images, playlistId }: Props) => {
+  const originalCover = images.main?.find((img) => img.type === "original")
+  const src = originalCover ? originalCover?.url : defaultCover
+
+  const [uploadCover] = useUploadPlaylistCoverMutation()
+  const [deleteCover] = useDeletePlaylistCoverMutation()
+
+  const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
+    const maxSize = 5 * 1024 * 1024
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif"]
+
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (file.size > maxSize) {
+      alert(`Файл слишком большой (макс. ${Math.round(maxSize / 1024)} КБ)`)
+    }
+
+    if (!allowedTypes.includes(file.type)) {
+      alert("Разрешены только изображения JPEG, PNG или GIF")
+    }
+
+    uploadCover({ playlistId, file })
+  }
+
+  const deleteCoverHandler = () => deleteCover({ playlistId })
+
+  return (
+    <div>
+      <img src={src} alt={"cover"} width={"100px"} className={s.cover} />
+      <input type="file" accept="image/jpeg,image/png,image/gif" onChange={uploadCoverHandler} />
+      {originalCover && <button onClick={() => deleteCoverHandler()}>delete cover</button>}
+    </div>
+  )
+}
+```
+
+- `PlaylistDescription.tsx`
+
+<Callout type={"warning"}>
+  Перенесите стили для обложки из `PlaylistItem.module.css` в `PlaylistCover.module.css`
+</Callout>
+
+```tsx filename="PlaylistDescription.tsx"
+type Props = {
+  attributes: PlaylistAttributes
+}
+
+export const PlaylistDescription = ({ attributes }: Props) => {
+  return (
+    <>
+      <div>title: {attributes.title}</div>
+      <div>description: {attributes.description}</div>
+      <div>userName: {attributes.user.name}</div>
+    </>
+  )
+}
+```
+
+- `PlaylistItem.tsx`
+
+```tsx filename="PlaylistItem.tsx"
+type Props = {
+  playlist: Playlist
+  deletePlaylist: (playlistId: string) => void
+  editPlaylist: (playlist: Playlist) => void
+}
+
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  return (
+    <div>
+      <PlaylistCover playlistId={playlist.id} images={playlist.attributes.images} />
+      <PlaylistDescription attributes={playlist.attributes} />
+      <button onClick={() => deletePlaylist(playlist.id)}>delete</button>
+      <button onClick={() => editPlaylist(playlist)}>update</button>
+    </div>
+  )
+}
+```
+
+**Результат:** рефакторинг завершен. Код работает 🚀
