@@ -1,0 +1,54 @@
+import { Callout } from "nextra/components"
+
+# 4. Обновление данных
+
+После мутации данных на `UI` не видно изменений без перегрузки страницы.
+
+Рефетчинг данных в `RTK query` реализуется при помощи **системы тегов**:
+
+<Callout type={'info'}>
+  "Tag" - строка или объект, позволяющий именовать определенные типы данных и инвалидировать части кэша.
+  При инвалидации кэш-тега `RTK Query` автоматически повторно запрашивает данные с помощью эндпоинтов, помеченных этим
+  тегом:
+
+- [Automated Re-fetching](https://redux-toolkit.js.org/rtk-query/usage/automated-refetching);
+- [Advanced Mutations with
+  Revalidation](https://redux-toolkit.js.org/rtk-query/usage/mutations#advanced-mutations-with-revalidation).
+
+</Callout>
+
+Для использования тегов добавьте:
+
+1. Свойство `tagTypes` в `API-slice`, объявляющее массив имен тегов для типов данных, таких как `"Playlist"`;
+2. Массив `providesTags` в `query`-эндпоинте, перечисляющий набор тегов, описывающих получаемые в этом запросе данные;
+3. Массив `invalidatesTags` в `mutation`-эндпоинтах, перечисляющий набор тегов, которые инвалидируются при выполнении этих мутаций:
+
+```ts filename="playlistsApi.ts" {3, 7, 11, 15, 19}
+export const playlistsApi = createApi({
+  /*...*/
+  tagTypes: ["Playlist"],
+  endpoints: (build) => ({
+    fetchPlaylists: build.query<PlaylistsResponse, void>({
+      query: () => ({ url: `playlists` }),
+      providesTags: ["Playlist"],
+    }),
+    createPlaylist: build.mutation<{ data: Playlist }, CreatePlaylistArgs>({
+      query: (body) => ({ url: "playlists", method: "post", body }),
+      invalidatesTags: ["Playlist"],
+    }),
+    deletePlaylist: build.mutation<void, string>({
+      query: (playlistId) => ({ url: `playlists/${playlistId}`, method: "delete" }),
+      invalidatesTags: ["Playlist"],
+    }),
+    updatePlaylist: build.mutation<void, { playlistId: string; body: UpdatePlaylistArgs }>({
+      query: ({ playlistId, body }) => ({ url: `playlists/${playlistId}`, method: "put", body }),
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+Откройте `network` и протестируйте выполнение `CRUD`-операций с плейлистами. Сперва при
+мутациях идет запрос на саму мутацию, а затем на получение актуальных плейлистов.
+
+**Результат:** при мутациях пользователь видит обновленную информацию без перезагрузки страницы 🚀
