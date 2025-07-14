@@ -164,7 +164,7 @@ export const playlistsApi = createApi({
 
 Еще раз пробуем создать плейлист. Открываем панель разработчика и видим, что запрос успешно проходит
 
-![create-playlust-success](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/50be3f04-1277-4989-9724-211d6704010e_create-playlust-success.png)
+![create-playlist-success](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/50be3f04-1277-4989-9724-211d6704010e_create-playlust-success.png)
 
 `accessToken` цепляется в `Headers`
 
@@ -172,6 +172,24 @@ export const playlistsApi = createApi({
 
 **Результат:** если сделать запрос на добавление плейлист и обновить страницу, можно убедиться в правильности
 написанной логики 🚀
+
+❗После успешного создания плейлиста, зачистим форму ввода
+
+```tsx filename="CreatePlaylistForm.tsx" {2, 8}
+export const CreatePlaylistForm = () => {
+  const { register, handleSubmit, reset } = useForm<CreatePlaylistArgs>()
+
+  const [createPlaylist] = useCreatePlaylistMutation()
+
+  const onSubmit: SubmitHandler<CreatePlaylistArgs> = (data) => {
+    createPlaylist(data).then(() => {
+      reset()
+    })
+  }
+
+  /*...*/
+}
+```
 
 ## Удаление плейлиста
 
