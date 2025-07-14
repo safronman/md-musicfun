@@ -40,7 +40,7 @@ export const baseApi = createApi({
 
 2. Внедрите эндпоинты `playlistsApi` в `baseApi`, используя `injectEndpoints`:
 
-```ts filename="todolistsApi.ts" /baseApi.injectEndpoints/
+```ts filename="playlistsApi.ts" /baseApi.injectEndpoints/
 export const playlistsApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     /*...*/
