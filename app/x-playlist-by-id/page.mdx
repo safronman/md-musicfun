@@ -1,0 +1,53 @@
+# x. playlist-by-id
+
+```tsx filename="PlaylistPage.tsx"
+export const PlaylistPage = () => {
+  const { id } = useParams<{ id: string }>()
+
+  const { data } = useFetchPlaylistByIdQuery(id as string, { skip: !id })
+
+  if (!id) return <div>Invalid playlist ID</div>
+
+  return (
+    <div>
+      <div>title: {data?.data.attributes.title}</div>
+      <div>description: {data?.data.attributes.description}</div>
+      <div>userName: {data?.data.attributes.user.name}</div>
+    </div>
+  )
+}
+```
+
+```tsx filename="PlaylistItem.tsx" {9-11}
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  return (
+    <div>
+      <div>title: {playlist.attributes.title}</div>
+      <div>description: {playlist.attributes.description}</div>
+      <div>userName: {playlist.attributes.user.name}</div>
+      <button onClick={() => deletePlaylist(playlist.id)}>delete</button>
+      <button onClick={() => editPlaylist(playlist)}>update</button>
+      <div>
+        <Link to={`${Path.Playlists}/${playlist.id}`}>to playlist page</Link>
+      </div>
+    </div>
+  )
+}
+```
+
+```tsx filename="Routing.tsx" {5}
+export const Routing = () => (
+  <Routes>
+    <Route path={Path.Main} element={<MainPage />} />
+    <Route path={Path.Playlists} element={<PlaylistsPage />} />
+    <Route path={`${Path.Playlists}/:id`} element={<PlaylistPage />} />
+    <Route path={Path.NotFound} element={<PageNotFound />} />
+  </Routes>
+)
+```
+
+```ts filename="playlistApi.tsx"
+fetchPlaylistById: build.query<{ data: Playlist }, string>({
+      query: (playlistId) => ({ url: `playlists/${playlistId}` }),
+    }),
+```
