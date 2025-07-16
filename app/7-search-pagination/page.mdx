@@ -1,0 +1,557 @@
+import { Callout } from "nextra/components"
+
+# 7. Поиск, пагинация
+
+Давайте вернемся к запросу за плейлистами и обратим внимание на большое количество query параметров, которые необходимы,
+чтобы реализовать:
+
+- поиск по названию плейлиста (`search`)
+- пагинацию (`pageNumber`, `pageSize`)
+- различные сортировки (`sortBy`, `sortDirection`)
+- фильтрацию по `tagsIds` - получение плейлистов по тегам
+- фильтрацию по `userId` - получение только своих плейлистов
+- фильтрацию по `trackId` – в результатах только плейлисты с этим треком
+
+Некоторый функционал мы реализуем, а некоторые останется вам в качестве домашнего задания
+
+## Поиск
+
+### Api
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchPlaylists: build.query<PlaylistsResponse, FetchPlaylistsArgs>({
+      query: (params) => ({ url: `playlists`, params }),
+      providesTags: ["Playlist"],
+    }),
+    /*...*/
+  }),
+})
+```
+
+```tsx filename="playlistsApi.types.ts"
+export type FetchPlaylistsArgs = {
+  pageNumber?: number
+  pageSize?: number
+  search?: string
+  sortBy?: "addedAt" | "likesCount"
+  sortDirection?: "asc" | "desc"
+  tagsIds?: string[]
+  userId?: string
+  trackId?: string
+}
+```
+
+### UI
+
+<Callout type={"warning"}>Если плейлисты не найдены, то необходимо показать это пользователю</Callout>
+
+```tsx filename="PlaylistsPage.tsx" {3, 7, 15-19, 21}
+export const PlaylistsPage = () => {
+  const [playlistId, setPlaylistId] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+
+  const { register, handleSubmit, reset } = useForm<UpdatePlaylistArgs>()
+
+  const { data, isLoading } = useFetchPlaylistsQuery({ search })
+
+  /*...*/
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <input
+        type="search"
+        placeholder={"Search playlist by title"}
+        onChange={(e) => setSearch(e.currentTarget.value)}
+      />
+      <div className={s.items}>
+        {!data?.data.length && !isLoading && <h2>Playlists not found</h2>}
+        {/*...*/}
+      </div>
+    </div>
+  )
+}
+```
+
+**Результат:** поиск работает🚀
+
+### Debounce
+
+Обратите внимание что при каждом вводе символа у нас уходит новый запрос. В нашем случае это не самое лучшее поведение.
+Дайваете реализуем `debounce`
+
+`Debounce` — это техника в программировании, которая ограничивает частоту вызовов функции, чтобы она выполнялась
+только после того, как прошло определенное время без новых вызовов.
+
+#### Как это работает?
+
+1. Пользователь совершает действие (например, ввод текста в поисковой строке).
+
+2. Вместо немедленного выполнения функции (например, отправки запроса) запускается таймер.
+
+3. Если действие повторяется до истечения таймера, предыдущий вызов отменяется, и таймер сбрасывается.
+
+4. Функция выполняется только после того, как таймер полностью истек (т. е. новых вызовов не было).
+
+<Callout type={'info'} emoji={'🔗'}>
+
+[Debounce vs Throttle: Definitive Visual Guide](https://kettanaito.com/blog/debounce-vs-throttle)
+
+</Callout>
+
+#### Реализация
+
+Существует множество способов реализации `debounce`.
+
+Например, можно воспользоваться готовым универсальным решением [useDebounceValue](https://usehooks-ts.com/react-hook/use-debounce-value), а можно написать свою
+упрощенную версию
+
+```ts filename="useDebounceValue.ts"
+export const useDebounceValue = <T>(value: T, delay: number = 700): T => {
+  const [debounced, setDebounced] = useState(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(handler)
+  }, [value, delay])
+
+  return debounced
+}
+```
+
+```tsx filename="PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  /*...*/
+  const [search, setSearch] = useState("")
+  const debounceSearch = useDebounceValue(search)
+  /*...*/
+}
+```
+
+**Результат:** поиск работает с `debounce`🚀
+
+## Пагинация
+
+### Теория
+
+**Пагинация** — это разбиение большого списка данных на отдельные страницы для удобства просмотра и навигации.
+
+Существует множество способов как можно реализовать пагинацию.
+Есть множество готовых решений:
+
+- [react-paginate](https://www.npmjs.com/package/react-paginate)
+- [shadcn pagination](https://ui.shadcn.com/docs/components/pagination)
+- [mui pagination](https://mui.com/material-ui/react-pagination/)
+
+Но мы сделаем свою собственную пагинацию. Вы можете взять код из методички, вставить к себе в проект и настроить под себя
+
+### Base pagination
+
+Бекенд возвращает мета информацию на соновании которой, мы сможем построить пагинацию
+
+```ts filename='playlistsApi.types.ts'
+export type Meta = {
+  page: number
+  pageSize: number
+  totalCount: number
+  pagesCount: number
+}
+```
+
+- `PlaylistsPage.tsx`
+
+```tsx filename="PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  /*...*/
+
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const { data, isLoading } = useFetchPlaylistsQuery({ search: debounceSearch, pageNumber: currentPage, pageSize: 2 })
+
+  /*...*/
+
+  return (
+    <div className={s.container}>
+      {/*...*/}
+      <Pagination currentPage={currentPage} setCurrentPage={setCurrentPage} pagesCount={data?.meta.pagesCount || 1} />
+    </div>
+  )
+}
+```
+
+- `Pagination.tsx`
+
+```tsx filename="common/components/Pagination/Pagination.tsx"
+import { getPaginationPages } from "@/common/utils"
+import s from "./Pagination.module.css"
+
+type Props = {
+  currentPage: number
+  setCurrentPage: (page: number) => void
+  pagesCount: number
+}
+
+export const Pagination = ({ currentPage, setCurrentPage, pagesCount }: Props) => {
+  if (pagesCount <= 1) return null
+
+  const pages = getPaginationPages(currentPage, pagesCount)
+
+  return (
+    <div className={s.pagination}>
+      {pages.map((page, idx) =>
+        page === "..." ? (
+          <span className={s.ellipsis} key={`ellipsis-${idx}`}>
+            ...
+          </span>
+        ) : (
+          <button
+            key={page}
+            className={page === currentPage ? `${s.pageButton} ${s.pageButtonActive}` : s.pageButton}
+            onClick={() => page !== currentPage && setCurrentPage(Number(page))}
+            disabled={page === currentPage}
+            type="button"
+          >
+            {page}
+          </button>
+        ),
+      )}
+    </div>
+  )
+}
+```
+
+- `Pagination.module.css`
+
+```css filename="Pagination.module.css"
+.pagination {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+.pageButton {
+  padding: 4px 10px;
+  background: white;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pageButtonActive {
+  background: #ececec;
+  cursor: default;
+}
+
+.ellipsis {
+  padding: 4px 10px;
+  color: #888;
+  user-select: none;
+}
+```
+
+- `getPaginationPages.ts`
+
+```tsx filename="common/utils/getPaginationPages.ts"
+const SIBLING_COUNT = 1
+
+/**
+ * Generates an array of pages for pagination display with ellipses
+ */
+export const getPaginationPages = (currentPage: number, pagesCount: number): (number | "...")[] => {
+  if (pagesCount <= 1) return []
+
+  const pages: (number | "...")[] = []
+
+  // Range boundaries around the current page
+  const leftSibling = Math.max(2, currentPage - SIBLING_COUNT)
+  const rightSibling = Math.min(pagesCount - 1, currentPage + SIBLING_COUNT)
+
+  // Always show the first page
+  pages.push(1)
+
+  // Ellipsis on the left
+  if (leftSibling > 2) {
+    pages.push("...")
+  }
+
+  // Neighboring pages around the current page
+  for (let page = leftSibling; page <= rightSibling; page++) {
+    pages.push(page)
+  }
+
+  // Ellipsis on the right
+  if (rightSibling < pagesCount - 1) {
+    pages.push("...")
+  }
+
+  // Always show the last page (if more than one)
+  if (pagesCount > 1) {
+    pages.push(pagesCount)
+  }
+
+  return pages
+}
+```
+
+**Результат:** пагинация готова 🚀
+
+### pageSize
+
+Усложним пагинацию и дадим пользователю возможность менять количество плейлистов на странице (`pageSize`)
+
+- `PlaylistsPage.tsx`
+
+```tsx filename="PlaylistsPage" {5, 9, 13-16, 25-26}
+export const PlaylistsPage = () => {
+  /*...*/
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(2)
+
+  /*...*/
+
+  const { data, isLoading } = useFetchPlaylistsQuery({ search: debounceSearch, pageNumber: currentPage, pageSize })
+
+  /*...*/
+
+  const changePageSizeHandler = (size: number) => {
+    setPageSize(size)
+    setCurrentPage(1)
+  }
+
+  return (
+    <div className={s.container}>
+      {/*...*/}
+      <Pagination
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        pagesCount={data?.meta.pagesCount || 1}
+        pageSize={pageSize}
+        changePageSize={changePageSizeHandler}
+      />
+    </div>
+  )
+}
+```
+
+- `Pagination.tsx`
+
+```tsx filename="Pagination.tsx"
+type Props = {
+  /*...*/
+  pageSize: number
+  changePageSize: (size: number) => void
+}
+
+export const Pagination = ({ currentPage, setCurrentPage, pagesCount, pageSize, changePageSize }: Props) => {
+  if (pagesCount <= 1) return null
+
+  const pages = getPaginationPages(currentPage, pagesCount)
+
+  return (
+    <div className={s.container}>
+      {/*...*/}
+
+      <label>
+        Show
+        <select value={pageSize} onChange={(e) => changePageSize(Number(e.target.value))}>
+          {[2, 4, 8, 16, 32].map((size) => (
+            <option value={size} key={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+        per page
+      </label>
+    </div>
+  )
+}
+```
+
+- `Pagination.module.css`
+
+```css filename="Pagination.module.css"
+.container {
+  display: flex;
+  align-content: center;
+  align-items: center;
+  margin: 0 auto;
+  gap: 40px;
+}
+
+.pagination {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  /*margin-top: 24px;  ❌ remove */
+}
+```
+
+**Результат:** внедрили в пагинацию возможность менять кол-во страниц 🚀
+
+## Рефакторинг
+
+### Бага в поиске
+
+Воспрозведение баги:
+
+- на первой странице найдите плейлист который хотите найти. Например с названием `cat`
+- смените страницу на любую другую и попробуйте найти данный плейлист. Вы его не найдете, т.к. pageNumber изменился
+- чтобы решить эту проблему необходимо при поиске всегда сбрасывать pageNumber на первую страницу
+
+```tsx filename="PlaylistsPage.tsx" /searchPlaylistHandler/
+export const PlaylistsPage = () => {
+  /*...*/
+
+  const searchPlaylistHandler = (e: ChangeEvent<HTMLInputElement>) => {
+    setSearch(e.currentTarget.value)
+    setCurrentPage(1)
+  }
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <input type="search" placeholder={"Search playlist by title"} onChange={searchPlaylistHandler} />
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+**Результат:** пофиксили багу 🚀
+
+### Декомпозиция
+
+Компонент `PlaylistsPage.tsx` стал большим и довольно трудно читаемым, поэтому прежде чем двигаться дальше
+декомпозируем его
+
+- `PlaylistsPage.tsx`
+
+```tsx filename="PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(2)
+
+  const [search, setSearch] = useState("")
+  const debounceSearch = useDebounceValue(search)
+
+  const { data, isLoading } = useFetchPlaylistsQuery({ search: debounceSearch, pageNumber: currentPage, pageSize })
+
+  const changePageSizeHandler = (size: number) => {
+    setPageSize(size)
+    setCurrentPage(1)
+  }
+
+  const searchPlaylistHandler = (e: ChangeEvent<HTMLInputElement>) => {
+    setSearch(e.currentTarget.value)
+    setCurrentPage(1)
+  }
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <input type="search" placeholder={"Search playlist by title"} onChange={searchPlaylistHandler} />
+      <PlaylistsList playlists={data?.data || []} isPlaylistsLoading={isLoading} />
+      <Pagination
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        pagesCount={data?.meta.pagesCount || 1}
+        pageSize={pageSize}
+        changePageSize={changePageSizeHandler}
+      />
+    </div>
+  )
+}
+```
+
+- `PlaylistsList.tsx`
+
+```tsx filename="PlaylistsList.tsx"
+type Props = {
+  playlists: Playlist[]
+  isPlaylistsLoading: boolean
+}
+
+export const PlaylistsList = ({ playlists, isPlaylistsLoading }: Props) => {
+  const [playlistId, setPlaylistId] = useState<string | null>(null)
+
+  const { register, handleSubmit, reset } = useForm<UpdatePlaylistArgs>()
+
+  const [deletePlaylist] = useDeletePlaylistMutation()
+
+  const deletePlaylistHandler = (playlistId: string) => {
+    if (confirm("Are you sure you want to delete the playlist?")) {
+      deletePlaylist(playlistId)
+    }
+  }
+
+  const editPlaylistHandler = (playlist: Playlist | null) => {
+    if (playlist) {
+      setPlaylistId(playlist.id)
+      reset({
+        title: playlist.attributes.title,
+        description: playlist.attributes.description,
+        tagIds: playlist.attributes.tags.map((t) => t.id),
+      })
+    } else {
+      setPlaylistId(null)
+    }
+  }
+
+  return (
+    <div className={s.items}>
+      {!playlists.length && !isPlaylistsLoading && <h2>Playlists not found</h2>}
+      {playlists.map((playlist) => {
+        const isEditing = playlistId === playlist.id
+
+        return (
+          <div className={s.item} key={playlist.id}>
+            {isEditing ? (
+              <EditPlaylistForm
+                playlistId={playlistId}
+                handleSubmit={handleSubmit}
+                register={register}
+                editPlaylist={editPlaylistHandler}
+                setPlaylistId={setPlaylistId}
+              />
+            ) : (
+              <PlaylistItem
+                playlist={playlist}
+                deletePlaylist={deletePlaylistHandler}
+                editPlaylist={editPlaylistHandler}
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+```
+
+- `PlaylistsList.module.css`
+
+Перенесите `items` и `item` из `PlaylistsPage.module.css`
+
+```css filename="PlaylistsList.module.css"
+.items {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.item {
+  width: 240px;
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+```
+
+**Результат:** рефакторинг завершен. Код работает 🚀

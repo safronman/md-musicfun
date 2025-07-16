@@ -1,0 +1,103 @@
+import { Callout } from "nextra/components"
+
+# 9. Infinity queries
+
+Реализуем на странице с треками
+
+<Callout type={"info"} emoji={"🔗"}>
+  [Infinite Queries](https://redux-toolkit.js.org/rtk-query/usage/infinite-queries)
+</Callout>
+
+`infiniteQuery` подходит для:
+
+- Бесконечной прокрутки (infinite scroll)
+- Кнопки "Загрузить еще"
+- Ленты новостей/постов
+- Когда нужно показать все данные в одном списке
+
+```ts
+    fetchInfinitePlaylists: build.infiniteQuery<PlaylistsResponse, FetchPlaylistsArgs, number>({
+      infiniteQueryOptions: {
+        initialPageParam: 1,
+        getNextPageParam: (_lastPage, _allPages, lastPageParam) => {
+          return lastPageParam + 1
+        },
+      },
+      query: ({ pageParam, queryArg }) => {
+        return { url: `playlists`, params: { ...queryArg, pageNumber: pageParam, pageSize: 20 } }
+      },
+      providesTags: ['Playlist'],
+    }),
+```
+
+<Callout>
+  Рассмотреть методы:
+  - [flat](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/flat) и
+  - [flatMap](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/flatMap)
+
+</Callout>
+
+```tsx
+export const PlaylistsPage = () => {
+  const [playlistId, setPlaylistId] = useState<string | null>(null)
+
+  const { register, handleSubmit, reset } = useForm<UpdatePlaylistArgs>()
+
+  const [search, setSearch] = useState("")
+  const debounceSearch = useDebounceValue(search)
+
+  const { data, isLoading, fetchNextPage, isFetchingNextPage, hasNextPage } = useFetchInfinitePlaylistsInfiniteQuery({
+    search: debounceSearch,
+  })
+
+  /*...*/
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <input
+        type="search"
+        placeholder={"Search playlist by title"}
+        onChange={(e) => setSearch(e.currentTarget.value)}
+      />
+
+      {/* Load More  */}
+      <div>
+        <button onClick={fetchNextPage} disabled={!hasNextPage || isLoading}>
+          {isFetchingNextPage ? "Loading more..." : hasNextPage ? "Load More" : "Nothing more to load"}
+        </button>
+      </div>
+
+      <div className={s.items}>
+        {!data?.pages[0].data.length && !isLoading && <h2>Playlists not found</h2>}
+        {data?.pages
+          ?.flatMap((page) => page.data)
+          .map((playlist) => {
+            const isEditing = playlistId === playlist.id
+
+            return (
+              <div className={s.item} key={playlist.id}>
+                {isEditing ? (
+                  <EditPlaylistForm
+                    playlistId={playlistId}
+                    handleSubmit={handleSubmit}
+                    register={register}
+                    editPlaylist={editPlaylistHandler}
+                    setPlaylistId={setPlaylistId}
+                  />
+                ) : (
+                  <PlaylistItem
+                    playlist={playlist}
+                    deletePlaylist={deletePlaylistHandler}
+                    editPlaylist={editPlaylistHandler}
+                  />
+                )}
+              </div>
+            )
+          })}
+      </div>
+    </div>
+  )
+}
+```

@@ -218,7 +218,7 @@ export const PlaylistsPage = () => {
   const [deletePlaylist] = useDeletePlaylistMutation()
 
   const deletePlaylistHandler = (playlistId: string) => {
-    if (confirm("Вы уверены, что хотите удалить плейлист?")) {
+    if (confirm("Are you sure you want to delete the playlist?")) {
       deletePlaylist(playlistId)
     }
   }
@@ -355,7 +355,7 @@ export const PlaylistsPage = () => {
   const [updatePlaylist] = useUpdatePlaylistMutation()
 
   const deletePlaylistHandler = (playlistId: string) => {
-    if (confirm("Вы уверены, что хотите удалить плейлист?")) {
+    if (confirm("Are you sure you want to delete the playlist?")) {
       deletePlaylist(playlistId)
     }
   }
@@ -505,7 +505,7 @@ export const PlaylistsPage = () => {
   const [deletePlaylist] = useDeletePlaylistMutation()
 
   const deletePlaylistHandler = (playlistId: string) => {
-    if (confirm("Вы уверены, что хотите удалить плейлист?")) {
+    if (confirm("Are you sure you want to delete the playlist?")) {
       deletePlaylist(playlistId)
     }
   }
