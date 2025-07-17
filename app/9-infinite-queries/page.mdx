@@ -2,8 +2,6 @@ import { Callout } from "nextra/components"
 
 # 9. Infinity queries
 
-## 1
-
 Реализуем бесконечный скролл на странице с треками
 
 <Callout type={"info"} emoji={"🔗"}>
@@ -17,25 +15,31 @@ import { Callout } from "nextra/components"
 - Ленты новостей/постов
 - Когда нужно показать все данные в одном списке
 
-## 2
+## cursor paginate
+
+### api
 
 - `features/tracks/api/tracksApi.ts`
 
 ```ts filename="features/tracks/api/tracksApi.ts"
 export const tracksApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
-    fetchTracks: build.infiniteQuery<FetchTracksResponse, FetchTracksArgs, number>({
+    fetchTracks: build.infiniteQuery<FetchTracksResponse, void, string | undefined>({
       infiniteQueryOptions: {
-        initialPageParam: 1,
-        getNextPageParam: (_lastPage, _allPages, lastPageParam) => {
-          return lastPageParam + 1
+        initialPageParam: undefined,
+        getNextPageParam: (lastPage) => {
+          return lastPage.meta.nextCursor || undefined
         },
       },
-      query: ({ queryArg, pageParam }) => ({ url: "playlists/tracks", params: queryArg }),
+      query: ({ pageParam }) => {
+        return {
+          url: "playlists/tracks",
+          params: { cursor: pageParam, pageSize: 5, paginationType: "cursor" },
+        }
+      },
     }),
   }),
 })
-
 export const { useFetchTracksInfiniteQuery } = tracksApi
 ```
 
@@ -70,8 +74,8 @@ export type TracksMeta = {
   nextCursor: string | null
   page: number
   pageSize: number
-  totalCount: number
-  pagesCount: number
+  totalCount: number | null
+  pagesCount: number | null
 }
 
 export type TrackAttributes = {
@@ -121,13 +125,13 @@ export type FetchTracksArgs = {
 }
 ```
 
-## 3
+### ui
 
 Вызовем хук `useFetchTracksInfiniteQuery` и посмотри на полученный результат
 
 ```tsx filename="TracksPage.tsx"
 export const TracksPage = () => {
-  const { data } = useFetchTracksInfiniteQuery({ paginationType: "cursor", pageSize: 5 })
+  const { data } = useFetchTracksInfiniteQuery()
 
   console.log(data)
 
@@ -213,71 +217,42 @@ export const TracksPage = () => {
 
 **Результат:** отрисовали первую страницу 🚀
 
-## 4
+### load more
 
-## ❌
+```tsx filename="TracksPage.tsx"
+export const TracksPage = () => {
+  const { data, isLoading, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useFetchTracksInfiniteQuery()
 
-```tsx
-export const PlaylistsPage = () => {
-  const [playlistId, setPlaylistId] = useState<string | null>(null)
+  const pages = data?.pages.flatMap((page) => page.data) || []
 
-  const { register, handleSubmit, reset } = useForm<UpdatePlaylistArgs>()
-
-  const [search, setSearch] = useState("")
-  const debounceSearch = useDebounceValue(search)
-
-  const { data, isLoading, fetchNextPage, isFetchingNextPage, hasNextPage } = useFetchInfinitePlaylistsInfiniteQuery({
-    search: debounceSearch,
-  })
-
-  /*...*/
+  const loadMoreHandler = () => {
+    if (hasNextPage && !isFetching) {
+      fetchNextPage()
+    }
+  }
 
   return (
-    <div className={s.container}>
-      <h1>Playlists page</h1>
-      <CreatePlaylistForm />
-      <input
-        type="search"
-        placeholder={"Search playlist by title"}
-        onChange={(e) => setSearch(e.currentTarget.value)}
-      />
+    <div>
+      {/*...*/}
 
-      {/* Load More  */}
-      <div>
-        <button onClick={fetchNextPage} disabled={!hasNextPage || isLoading}>
-          {isFetchingNextPage ? "Loading more..." : hasNextPage ? "Load More" : "Nothing more to load"}
-        </button>
-      </div>
-
-      <div className={s.items}>
-        {!data?.pages[0].data.length && !isLoading && <h2>Playlists not found</h2>}
-        {data?.pages
-          ?.flatMap((page) => page.data)
-          .map((playlist) => {
-            const isEditing = playlistId === playlist.id
-
-            return (
-              <div className={s.item} key={playlist.id}>
-                {isEditing ? (
-                  <EditPlaylistForm
-                    playlistId={playlistId}
-                    handleSubmit={handleSubmit}
-                    register={register}
-                    editPlaylist={editPlaylistHandler}
-                    setPlaylistId={setPlaylistId}
-                  />
-                ) : (
-                  <PlaylistItem
-                    playlist={playlist}
-                    deletePlaylist={deletePlaylistHandler}
-                    editPlaylist={editPlaylistHandler}
-                  />
-                )}
-              </div>
-            )
-          })}
-      </div>
+      {!isLoading && (
+        <>
+          {hasNextPage ? (
+            <button onClick={loadMoreHandler} disabled={isFetching}>
+              {isFetchingNextPage ? "Loading..." : "Load More"}
+            </button>
+          ) : (
+            <p>Nothing more to load</p>
+          )}
+        </>
+      )}
     </div>
   )
 }
 ```
+
+**Результат:** при нажатии на кнопку `load more` треки подгружаются до тех пор, пока полностью не подгрузятся 🚀
+
+### infinity scroll
+
+## offset paginate
