@@ -4,7 +4,7 @@ import { Callout } from "nextra/components"
 
 ## 1
 
-Реализуем на странице с треками
+Реализуем бесконечный скролл на странице с треками
 
 <Callout type={"info"} emoji={"🔗"}>
   [Infinite Queries](https://redux-toolkit.js.org/rtk-query/usage/infinite-queries)
@@ -121,14 +121,99 @@ export type FetchTracksArgs = {
 }
 ```
 
-## 🤔
+## 3
+
+Вызовем хук `useFetchTracksInfiniteQuery` и посмотри на полученный результат
+
+```tsx filename="TracksPage.tsx"
+export const TracksPage = () => {
+  const { data } = useFetchTracksInfiniteQuery({ paginationType: "cursor", pageSize: 5 })
+
+  console.log(data)
+
+  return (
+    <div>
+      <h1>Tracks page</h1>
+    </div>
+  )
+}
+```
+
+Обратите внимание, что хук вернул нам структуру `{pages: DataType[], pageParams: PageParam[]},`
+которая содержит все полученные результаты страниц и соответствующие параметры страниц, использованные для их загрузки.
+
+Эта структура обеспечивает гибкость в отображении данных в вашем интерфейсе (показывать отдельные страницы или
+объединять в единый список), позволяет ограничивать количество страниц, хранящихся в кеше, а также даёт возможность
+динамически определять следующую или предыдущую страницу для загрузки — на основе самих данных или их параметров.
+
+![infinite query](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/c6dd0f71-4977-48a6-adc0-035e123683f5_infinite-query.png)
+
+Отрисуем данные
 
 <Callout>
-  Рассмотреть методы:
-  - [flat](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/flat) и
+  Чтобы уменьшить вложенность воспользуемся `flat` или `flatMap`
+  - [flat](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/flat)
   - [flatMap](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/flatMap)
 
 </Callout>
+
+- `TracksPage.tsx`
+
+```tsx filename="TracksPage.tsx"
+import { useFetchTracksInfiniteQuery } from "../../api/tracksApi.ts"
+import s from "./TracksPage.module.css"
+
+export const TracksPage = () => {
+  const { data } = useFetchTracksInfiniteQuery({ paginationType: "cursor", pageSize: 5 })
+
+  const pages = data?.pages.map((page) => page.data).flat() || []
+  // const pages = data?.pages.flatMap((page) => page.data) || []
+
+  return (
+    <div>
+      <h1>Tracks page</h1>
+      <div className={s.list}>
+        {pages.map((track) => {
+          const { title, user, attachments } = track.attributes
+
+          return (
+            <div key={track.id} className={s.item}>
+              <div>
+                <p>Title: {title}</p>
+                <p>Name: {user.name}</p>
+              </div>
+              {attachments.length ? <audio controls src={attachments[0].url} /> : "no file"}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+- `TracksPage.module.css`
+
+```css filename="TracksPage.module.css"
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+```
+
+**Результат:** отрисовали первую страницу 🚀
+
+## 4
 
 ## ❌
 
