@@ -35,7 +35,7 @@ export const playlistsApi = createApi({
       query: () => ({ url: `playlists` }),
       providesTags: ["Playlist"],
     }),
-    createPlaylist: build.mutation<{ data: Playlist }, CreatePlaylistArgs>({
+    createPlaylist: build.mutation<{ data: PlaylistData }, CreatePlaylistArgs>({
       query: (body) => ({ url: "playlists", method: "post", body }),
       invalidatesTags: ["Playlist"],
     }),

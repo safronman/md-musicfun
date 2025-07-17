@@ -72,9 +72,10 @@ pnpm add @reduxjs/toolkit react-redux
 
 [Базовое применение](https://redux-toolkit.js.org/rtk-query/overview#basic-usage)
 
+- `playlistsApi.ts`
+
 ```ts filename="playlistsApi.ts"
 // Во избежание ошибок импорт должен быть из `@reduxjs/toolkit/query/react`
-import type { PlaylistsResponse } from "@/features/playlists/api/playlistsApi.types.ts"
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react"
 
 // `createApi` - функция из `RTK Query`, позволяющая создать объект `API`
@@ -95,7 +96,7 @@ export const playlistsApi = createApi({
   endpoints: (build) => ({
     // Типизация аргументов (<возвращаемый тип, тип query аргументов (`QueryArg`)>)
     // `query` по умолчанию создает запрос `get` и указание метода необязательно
-    fetchPlaylists: build.query<PlaylistsResponse, void>({
+    fetchPlaylists: build.query<PlaylistsResponse, FetchPlaylistsArgs>({
       query: () => {
         return {
           method: "get",
@@ -118,6 +119,95 @@ export const { useFetchPlaylistsQuery } = playlistsApi
   зарегистироваться
 
 </Callout>
+
+- `playlistsApi.types.ts`
+
+```ts filename="playlistsApi.types.ts"
+import type { CurrentUserReaction } from "@/common/enums"
+import type { Images, Tag, User } from "@/common/types"
+
+export type PlaylistsResponse = {
+  data: PlaylistData[]
+  meta: PlaylistMeta
+}
+
+export type PlaylistData = {
+  id: string
+  type: "playlists"
+  attributes: PlaylistAttributes
+}
+
+export type PlaylistMeta = {
+  page: number
+  pageSize: number
+  totalCount: number
+  pagesCount: number
+}
+
+export type PlaylistAttributes = {
+  title: string
+  description: string
+  addedAt: string
+  updatedAt: string
+  order: number
+  dislikesCount: number
+  likesCount: number
+  tags: Tag[]
+  images: Images
+  user: User
+  currentUserReaction: CurrentUserReaction
+}
+
+// Arguments
+export type FetchPlaylistsArgs = {
+  pageNumber?: number
+  pageSize?: number
+  search?: string
+  sortBy?: "addedAt" | "likesCount"
+  sortDirection?: "asc" | "desc"
+  tagsIds?: string[]
+  userId?: string
+  trackId?: string
+}
+```
+
+- `common/types/types.ts`
+
+```ts filename="common/types/types.ts"
+export type Tag = {
+  id: string
+  name: string
+}
+
+export type User = {
+  id: string
+  name: string
+}
+
+export type Images = {
+  main: Cover[]
+}
+
+export type Cover = {
+  type: "original" | "medium" | "thumbnail"
+  width: number
+  height: number
+  fileSize: number
+  url: string
+}
+```
+
+- `common/enums/enums.ts`
+
+```ts filename="common/enums/enums.ts"
+export const CurrentUserReaction = {
+  Like: 1,
+  Dislike: -1,
+  None: 0,
+} as const
+
+export type CurrentUserReaction = (typeof CurrentUserReaction)[keyof typeof CurrentUserReaction]
+```
 
 ## Store
 

@@ -47,7 +47,7 @@ export const Routing = () => (
 ```
 
 ```ts filename="playlistApi.tsx"
-fetchPlaylistById: build.query<{ data: Playlist }, string>({
+fetchPlaylistById: build.query<{ data: PlaylistData }, string>({
       query: (playlistId) => ({ url: `playlists/${playlistId}` }),
     }),
 ```

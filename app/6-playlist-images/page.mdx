@@ -17,9 +17,9 @@ import defaultCover from "@/assets/images/default-playlist-cover.png"
 import s from "./PlaylistItem.module.css"
 
 type Props = {
-  playlist: Playlist
+  playlist: PlaylistData
   deletePlaylist: (playlistId: string) => void
-  editPlaylist: (playlist: Playlist) => void
+  editPlaylist: (playlist: PlaylistData) => void
 }
 
 export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
@@ -231,9 +231,9 @@ export const PlaylistDescription = ({ attributes }: Props) => {
 
 ```tsx filename="PlaylistItem.tsx"
 type Props = {
-  playlist: Playlist
+  playlist: PlaylistData
   deletePlaylist: (playlistId: string) => void
-  editPlaylist: (playlist: Playlist) => void
+  editPlaylist: (playlist: PlaylistData) => void
 }
 
 export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {

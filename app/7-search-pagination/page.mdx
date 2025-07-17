@@ -30,19 +30,6 @@ export const playlistsApi = baseApi.injectEndpoints({
 })
 ```
 
-```tsx filename="playlistsApi.types.ts"
-export type FetchPlaylistsArgs = {
-  pageNumber?: number
-  pageSize?: number
-  search?: string
-  sortBy?: "addedAt" | "likesCount"
-  sortDirection?: "asc" | "desc"
-  tagsIds?: string[]
-  userId?: string
-  trackId?: string
-}
-```
-
 ### UI
 
 <Callout type={"warning"}>Если плейлисты не найдены, то необходимо показать это пользователю</Callout>
@@ -150,10 +137,10 @@ export const PlaylistsPage = () => {
 
 ### Base pagination
 
-Бекенд возвращает мета информацию на соновании которой, мы сможем построить пагинацию
+Бекенд возвращает мета информацию на основании которой, мы сможем построить пагинацию
 
 ```ts filename='playlistsApi.types.ts'
-export type Meta = {
+export type PlaylistMeta = {
   page: number
   pageSize: number
   totalCount: number
@@ -474,7 +461,7 @@ export const PlaylistsPage = () => {
 
 ```tsx filename="PlaylistsList.tsx"
 type Props = {
-  playlists: Playlist[]
+  playlists: PlaylistData[]
   isPlaylistsLoading: boolean
 }
 
@@ -491,7 +478,7 @@ export const PlaylistsList = ({ playlists, isPlaylistsLoading }: Props) => {
     }
   }
 
-  const editPlaylistHandler = (playlist: Playlist | null) => {
+  const editPlaylistHandler = (playlist: PlaylistData | null) => {
     if (playlist) {
       setPlaylistId(playlist.id)
       reset({

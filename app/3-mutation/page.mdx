@@ -18,7 +18,7 @@ export const playlistsApi = createApi({
   /*...*/
   endpoints: (build) => ({
     /*...*/
-    createPlaylist: build.mutation<{ data: Playlist }, CreatePlaylistArgs>({
+    createPlaylist: build.mutation<{ data: PlaylistData }, CreatePlaylistArgs>({
       query: (body) => ({
         url: "playlists",
         method: "post",
@@ -361,7 +361,7 @@ export const PlaylistsPage = () => {
   }
 
   // 3, 5
-  const editPlaylistHandler = (playlist: Playlist | null) => {
+  const editPlaylistHandler = (playlist: PlaylistData | null) => {
     if (playlist) {
       setPlaylistId(playlist.id)
       reset({
@@ -435,9 +435,9 @@ export const PlaylistsPage = () => {
 
 ```tsx filename="PlaylistItem.tsx"
 type Props = {
-  playlist: Playlist
+  playlist: PlaylistData
   deletePlaylist: (playlistId: string) => void
-  editPlaylist: (playlist: Playlist) => void
+  editPlaylist: (playlist: PlaylistData) => void
 }
 
 export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
@@ -510,7 +510,7 @@ export const PlaylistsPage = () => {
     }
   }
 
-  const editPlaylistHandler = (playlist: Playlist | null) => {
+  const editPlaylistHandler = (playlist: PlaylistData | null) => {
     if (playlist) {
       setPlaylistId(playlist.id)
       reset({
