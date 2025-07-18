@@ -15,7 +15,7 @@ import { Callout } from "nextra/components"
 - Ленты новостей/постов
 - Когда нужно показать все данные в одном списке
 
-## cursor paginate
+## Cursor paginate
 
 ### api
 
@@ -217,7 +217,7 @@ export const TracksPage = () => {
 
 **Результат:** отрисовали первую страницу 🚀
 
-### load more
+### Load more
 
 ```tsx filename="TracksPage.tsx"
 export const TracksPage = () => {
@@ -253,6 +253,245 @@ export const TracksPage = () => {
 
 **Результат:** при нажатии на кнопку `load more` треки подгружаются до тех пор, пока полностью не подгрузятся 🚀
 
-### infinity scroll
+### Infinity scroll
 
-## offset paginate
+Мы хотим при прокрутке вниз чтобы треки автоматически добавлялись. Чтобы реализовать данную задачу нам необходимо
+отслеживать момент когда мы домотали до конца страницы и делать сразу же запрос.
+
+Для реализации данной задачи можно использовать библиотеку `react-intersection-observer`
+
+<Callout type={'info'} emoji={'🔗'}>
+  - [react-intersection-observer](https://www.npmjs.com/package/react-intersection-observer)
+
+</Callout>
+
+Но можно обойтись без библиотеки и написать самостоятельно.
+
+```tsx filename="TracksPage.tsx"
+export const TracksPage = () => {
+  const { data, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useFetchTracksInfiniteQuery()
+
+  // Creates a reference to the DOM element that will be the "trigger" for auto-loading
+  const observerRef = useRef<HTMLDivElement>(null)
+
+  const pages = data?.pages.flatMap((page) => page.data) || []
+
+  const loadMoreHandler = useCallback(() => {
+    if (hasNextPage && !isFetching) {
+      fetchNextPage()
+    }
+  }, [hasNextPage, isFetching, fetchNextPage])
+
+  useEffect(() => {
+    // IntersectionObserver monitors elements and reports how visible they are in the viewport
+    // https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // entries - observed element
+        if (entries.length > 0 && entries[0].isIntersecting) {
+          loadMoreHandler()
+        }
+      },
+      {
+        root: null, // Tracking relative to the browser window (viewport). null = entire screen
+        rootMargin: "100px", // Start loading 100px before the element appears
+        threshold: 0.1, // Trigger when 10% of the element becomes visible
+      },
+    )
+
+    const currentObserverRef = observerRef.current
+    if (currentObserverRef) {
+      // starts observing the element
+      observer.observe(currentObserverRef)
+    }
+
+    // Cleanup function - stops observing when component unmounts
+    return () => {
+      if (currentObserverRef) {
+        observer.unobserve(currentObserverRef)
+      }
+    }
+  }, [loadMoreHandler])
+
+  return (
+    <div>
+      <h1>Tracks page</h1>
+      <div className={s.list}>
+        {pages.map((track) => {
+          const { title, user, attachments } = track.attributes
+
+          return (
+            <div key={track.id} className={s.item}>
+              <div>
+                <p>Title: {title}</p>
+                <p>Name: {user.name}</p>
+              </div>
+              {attachments.length ? <audio controls src={attachments[0].url} /> : "no file"}
+            </div>
+          )
+        })}
+      </div>
+
+      {hasNextPage && (
+        // This element is observed by IntersectionObserver
+        <div ref={observerRef}>
+          {/*<div style={{ height: '20px' }} />` creates an "invisible zone" of 20px at the end of the list,*/}
+          {/*when reached, new tracks are automatically loaded. Without dimensions,*/}
+          {/*IntersectionObserver wouldn't work correctly.*/}
+          {isFetchingNextPage ? <div>Loading more tracks...</div> : <div style={{ height: "20px" }} />}
+        </div>
+      )}
+
+      {!hasNextPage && pages.length > 0 && <p>Nothing more to load</p>}
+    </div>
+  )
+}
+```
+
+**Результат:** infinity scroll реализован 🚀
+
+### Декомпозиция
+
+- `common/hooks/useInfiniteScroll.ts`
+
+```ts filename="useInfiniteScroll.ts"
+import { useCallback, useEffect, useRef } from "react"
+
+type Props = {
+  hasNextPage: boolean
+  isFetching: boolean
+  fetchNextPage: () => void
+  rootMargin?: string
+  threshold?: number
+}
+
+export const useInfiniteScroll = ({
+  hasNextPage,
+  isFetching,
+  fetchNextPage,
+  rootMargin = "100px",
+  threshold = 0.1,
+}: Props) => {
+  const observerRef = useRef<HTMLDivElement>(null)
+
+  const loadMoreHandler = useCallback(() => {
+    if (hasNextPage && !isFetching) {
+      fetchNextPage()
+    }
+  }, [hasNextPage, isFetching, fetchNextPage])
+
+  useEffect(() => {
+    // IntersectionObserver monitors elements and reports how visible they are in the viewport
+    // https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // entries - observed element
+        if (entries.length > 0 && entries[0].isIntersecting) {
+          loadMoreHandler()
+        }
+      },
+      {
+        root: null, // Tracking relative to the browser window (viewport). null = entire screen
+        rootMargin, // Start loading before the element appears
+        threshold, // Trigger when % of the element becomes visible
+      },
+    )
+
+    const currentObserverRef = observerRef.current
+    if (currentObserverRef) {
+      // starts observing the element
+      observer.observe(currentObserverRef)
+    }
+
+    // Cleanup function - stops observing when component unmounts
+    return () => {
+      if (currentObserverRef) {
+        observer.unobserve(currentObserverRef)
+      }
+    }
+  }, [loadMoreHandler, rootMargin, threshold])
+
+  return { observerRef }
+}
+```
+
+- `TracksList.tsx`
+
+<Callout type={"warning"}>Перенесите стили из `TracksPage.module.css` в `TracksList.module.css`</Callout>
+
+```tsx filename="TracksList.tsx"
+import type { TrackData } from "../../../api/tracksApi.types.ts"
+import s from "./TracksList.module.css"
+
+type Props = {
+  tracks: TrackData[]
+}
+
+export const TracksList = ({ tracks }: Props) => {
+  return (
+    <div className={s.list}>
+      {tracks.map((track) => {
+        const { title, user, attachments } = track.attributes
+
+        return (
+          <div key={track.id} className={s.item}>
+            <div>
+              <p>Title: {title}</p>
+              <p>Name: {user.name}</p>
+            </div>
+            {attachments.length ? <audio controls src={attachments[0].url} /> : "no file"}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+```
+
+- `LoadingTrigger.tsx`
+
+```tsx filename="LoadingTrigger.tsx"
+import type { RefObject } from "react"
+
+type Props = {
+  observerRef: RefObject<HTMLDivElement | null>
+  isFetchingNextPage: boolean
+}
+
+export const LoadingTrigger = ({ observerRef, isFetchingNextPage }: Props) => {
+  // This element is observed by IntersectionObserver
+  return (
+    <div ref={observerRef}>
+      {/*<div style={{ height: '20px' }} />` creates an "invisible zone" of 20px at the end of the list,*/}
+      {/*when reached, new tracks are automatically loaded. Without dimensions,*/}
+      {/*IntersectionObserver wouldn't work correctly.*/}
+      {isFetchingNextPage ? <div>Loading more tracks...</div> : <div style={{ height: "20px" }} />}
+    </div>
+  )
+}
+```
+
+- `TracksPage.tsx`
+
+```tsx filename="TracksPage.tsx"
+export const TracksPage = () => {
+  const { data, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useFetchTracksInfiniteQuery()
+
+  const { observerRef } = useInfiniteScroll({ hasNextPage, isFetching, fetchNextPage })
+
+  const pages = data?.pages.flatMap((page) => page.data) || []
+
+  return (
+    <div>
+      <h1>Tracks page</h1>
+      <TracksList tracks={pages} />
+      {hasNextPage && <LoadingTrigger isFetchingNextPage={isFetchingNextPage} observerRef={observerRef} />}
+      {!hasNextPage && pages.length > 0 && <p>Nothing more to load</p>}
+    </div>
+  )
+}
+```
+
+**Результат:** декомпозиция завершена. Код работает 🚀
+
+## Offset paginate
