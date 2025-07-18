@@ -521,7 +521,7 @@ export const TracksPage = () => {
 `Offset` пагинация — это способ разбивки данных на страницы, при котором указывается, с какого элемента начинать выборку
 (`offset`) и сколько элементов взять (`limit`).
 
-```tsx filename="tracksApi.ts"
+```tsx filename="tracksApi.ts" {3, 7, 13}
 export const tracksApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     fetchTracks: build.infiniteQuery<FetchTracksResponse, void, number>({

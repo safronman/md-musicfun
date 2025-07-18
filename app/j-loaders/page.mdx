@@ -1,0 +1,272 @@
+import { Callout } from "nextra/components"
+
+# 10. Loaders
+
+## Query Loading State
+
+### isLoading vs isFetching
+
+Автоматически сгенерированные `RTK Query` хуки предоставляют производные булевые значения
+[Query Loading State](https://redux-toolkit.js.org/rtk-query/usage/queries#query-loading-state),
+которые отражают текущее состояние данного запроса:
+
+1. **`isLoading`** будет `true`, когда запрос выполняется **впервые** для данного хука и данные **ещё недоступны**.
+   Используется для отображения `Skeleton` или пустой заглушки, пока данные загружаются впервые;
+
+2. **`isFetching`** будет `true`, когда запрос выполняется для заданного эндпоинта и параметров запроса,
+   но **не обязательно в первый раз**. Используется для показа текущих данных с добавлением визуального индикатора
+   обновления данных (`LinearProgress`).
+
+Выведем в консоль `isLoading, isFetching` в компоненте `PlaylistsPage.tsx`
+
+```tsx filename="PlaylistsPage.tsx" /isLoading/ /isFetching/
+export const PlaylistsPage = () => {
+  /*...*/
+
+  const { data, isLoading, isFetching } = useFetchPlaylistsQuery({
+    search: debounceSearch,
+    pageNumber: currentPage,
+    pageSize,
+  })
+
+  console.log({ isLoading, isFetching })
+
+  /*...*/
+}
+```
+
+При первой загрузке `isFetching` и `isLoading` отрабатывают одинаково:
+
+```bash filename="console"
+{isLoading: true, isFetching: true} // запрос в процессе выполнения
+{isLoading: false, isFetching: false} // запрос завершен
+```
+
+При переходе на другую страницу (`endpoint` тот же, меняется только `query`-параметр `page`) `isFetching`
+реагирует на загрузку данных, а `isLoading` нет:
+
+```bash filename="console"
+{isLoading: false, isFetching: true} // запрос в процессе выполнения
+{isLoading: false, isFetching: false} // запрос завершен
+```
+
+### Локальный loader
+
+При первой подгрузке будем использовать свойство `isLoading` и показывать пользователю `skeleton`.
+
+<Callout type={'info'} emoji={'🔗'}>
+
+Сейчас скелетон мы не будем реализовывать, т.к. на верстку сейчас мы акцент не делаем. Но в качетсве домашнего
+задания можете реализовать самостоятельно используя библиотеку [react loading
+skeleton](https://www.npmjs.com/package/react-loading-skeleton)
+
+</Callout>
+
+А при пагинации свойство `isFetching` и показывать `LinearProgress`
+
+```tsx filename="PlaylistsPage.tsx" /isLoading/ /isFetching/
+export const PlaylistsPage = () => {
+  /*...*/
+
+  if (isLoading) return <h1>Skeleton loader...</h1>
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <input type="search" placeholder={"Search playlist by title"} onChange={searchPlaylistHandler} />
+      <PlaylistsList playlists={data?.data || []} isPlaylistsLoading={isLoading} />
+      {isFetching && <LinearProgress />}
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+- `common/components/LinearProgress/LinearProgress.tsx`
+
+```tsx filename="LinearProgress.tsx"
+import s from "./LinearProgress.module.css"
+
+type Props = {
+  height?: number
+}
+
+export const LinearProgress = ({ height = 4 }: Props) => {
+  return (
+    <div className={s.root} style={{ height }}>
+      <div className={`${s.bar} ${s.indeterminate1}`} />
+      <div className={`${s.bar} ${s.indeterminate2}`} />
+    </div>
+  )
+}
+```
+
+- `common/components/LinearProgress/LinearProgress.module.css`
+
+```css filename="LinearProgress.module.css"
+.root {
+  background: #23272f;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.bar {
+  height: 100%;
+  background: #ddd;
+  position: absolute;
+}
+
+@keyframes indeterminate1 {
+  0% {
+    left: -35%;
+    right: 100%;
+  }
+  60% {
+    left: 100%;
+    right: -90%;
+  }
+  100% {
+    left: 100%;
+    right: -90%;
+  }
+}
+
+@keyframes indeterminate2 {
+  0% {
+    left: -200%;
+    right: 100%;
+  }
+  60% {
+    left: 107%;
+    right: -8%;
+  }
+  100% {
+    left: 107%;
+    right: -8%;
+  }
+}
+
+.indeterminate1 {
+  animation: indeterminate1 2.1s cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite;
+}
+
+.indeterminate2 {
+  animation: indeterminate2 2.1s cubic-bezier(0.165, 0.84, 0.44, 1) infinite;
+}
+```
+
+**Результат:** разобрались с отображением загрузки для `PlaylistsPage` 🚀
+
+## Глобальный loader
+
+Мы реализовали отображение загрузки только для получения плейлистов. Но, нам же нужно показывть индикатор загрузки
+при добавлении / удалении/ редактировании плейлиста. А в дальнейшем все CRUD операции для других страниц.
+
+Соотвественно хотелось бы иметь какой-то глобальный loading.
+
+Существует несколько вариантов, чтобы реализовать такой loading:
+
+- написать кастомный `middleware`
+- создать `slice` и в нем использовать `builder.addMatcher`
+- написать кастомный хук `useGlobalLoading`
+
+Остановимся на самом простом, но рабочем варианте. Напишем кастомный хук `useGlobalLoading`
+
+### useGlobalLoading
+
+- `common/hooks/useGlobalLoading.ts`
+
+```ts filename="useGlobalLoading.ts"
+import type { RootState } from "@/app/model/store.ts"
+import { useSelector } from "react-redux"
+
+export const useGlobalLoading = () => {
+  return useSelector((state: RootState) => {
+    // Get all active requests from RTK Query API
+    const queries = Object.values(state.baseApi.queries || {})
+    const mutations = Object.values(state.baseApi.mutations || {})
+
+    // Check if there are any active requests (status 'pending')
+    const hasActiveQueries = queries.some((query) => query?.status === "pending")
+    const hasActiveMutations = mutations.some((mutation) => mutation?.status === "pending")
+
+    return hasActiveQueries || hasActiveMutations
+  })
+}
+```
+
+- `store.ts`
+
+```ts filename="store.ts" {5}
+export const store = configureStore({
+  /*...*/
+})
+
+export type RootState = ReturnType<typeof store.getState>
+```
+
+- `App.tsx`
+
+```tsx filename="App.tsx" {2,7}
+export const App = () => {
+  const isGlobalLoading = useGlobalLoading()
+
+  return (
+    <>
+      <Header />
+      {isGlobalLoading && <LinearProgress />}
+      <div className={s.layout}>
+        <Routing />
+      </div>
+      <ToastContainer />
+    </>
+  )
+}
+```
+
+<Callout type={"warning"}>
+  Из компонента `PlaylistsPage.tsx` удалите `isFetching`, т.к. все запросы теперь обрабатываются глобально
+</Callout>
+
+**Результат:** теперь при каждом запросе будет показываться `LinearProgress` 🚀
+
+### Исключения ендпоинтов
+
+Если для некоторых ендпоинтов мы хотим сделать исключения, то просто будем добавлять их в массив `excludedEndpoints`
+
+```ts filename="useGlobalLoading.ts" {1-5, 15, 19}
+// List of endpoints to exclude from the global indicator
+const excludedEndpoints = [
+  playlistsApi.endpoints.fetchPlaylists.name,
+  // You can add other endpoints here if needed
+]
+
+export const useGlobalLoading = () => {
+  return useSelector((state: RootState) => {
+    // Get all active requests from RTK Query API
+    const queries = Object.values(state.baseApi.queries || {})
+    const mutations = Object.values(state.baseApi.mutations || {})
+
+    // Check if there are any active requests (status 'pending')
+    const hasActiveQueries = queries.some((query) => {
+      return query?.status === "pending" && !excludedEndpoints.includes(query.endpointName)
+    })
+
+    const hasActiveMutations = mutations.some((mutation) => {
+      return mutation?.status === "pending" && !excludedEndpoints.includes(mutation.endpointName)
+    })
+
+    return hasActiveQueries || hasActiveMutations
+  })
+}
+```
+
+**Плюсы такого подхода:**
+
+- **Type Safety** - `TypeScript` проверит, что `endpoint` существует 🚀
+- **Refactoring Safety** - если переименуете `endpoint`, изменения подтянутся автоматически 🚀
+- **Читаемость** - сразу понятно, какой именно `endpoint` исключается 🚀
+- **Простота** - не нужно создавать отдельные массивы или константы 🚀
