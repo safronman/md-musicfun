@@ -1,0 +1,139 @@
+# 12. Optimistic update
+
+[`Optimistic Update (оптимистичное обновление)`](https://redux-toolkit.js.org/rtk-query/usage/manual-cache-updates#optimistic-updates) - подход в разработке приложений, при котором
+пользовательский интерфейс (`UI`) обновляется до того, как сервер подтвердит успешность операции.
+Другими словами, приложение предполагает, что операция (например, отправка данных на сервер)
+завершится успешно, и сразу вносит изменения в `UI`. Если операция на сервере завершится
+неудачно, изменения в `UI` откатываются:
+
+**Преимущества Optimistic Update:**
+
+- **улучшение пользовательского опыта**: пользователь видит мгновенный отклик на свои действия, что делает приложение более отзывчивым;
+- **снижение ощущения задержки**: даже при медленной обработке запроса сервером, пользователь сразу видит обновленный `UI`;
+
+**Недостатки Optimistic Update:**
+
+- **сложность реализации**: нужно учитывать возможность отката изменений, если запрос завершится ошибкой;
+- **потенциальная несогласованность**: если сервер вернет ошибку, а приложение не сможет корректно откатить изменения, `UI` может остаться в некорректном состоянии;
+
+## Редактирование плейлиста
+
+Перепишем на `optimistic update` редактирование плейлиста.
+
+[updateQueryData](https://redux-toolkit.js.org/rtk-query/api/created-api/api-slice-utils#updatequerydata) локально
+обновляет данные в кэше для конкретного запроса и возвращет объект действия. При `dispatch` этого действия,
+возвращаемое значение от `dispatch` - объект `patchResult`. Если вызвать `patchResult.undo()`,
+запустится отмена изменений
+
+- `playlistsApi.ts`
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    updatePlaylist: build.mutation<void, { playlistId: string; body: UpdatePlaylistArgs }>({
+      query: ({ playlistId, body }) => ({ url: `playlists/${playlistId}`, method: "put", body }),
+      async onQueryStarted({ playlistId, body }, { dispatch, queryFulfilled }) {
+        const patchResult = dispatch(
+          playlistsApi.util.updateQueryData(
+            // название эндпоинта, в котором нужно обновить кэш
+            "fetchPlaylists",
+            // аргументы для эндпоинта
+            { pageNumber: 1, pageSize: 2, search: "" },
+            // `updateRecipe` - коллбэк для обновления закэшированного стейта мутабельным образом
+            (state) => {
+              const index = state.data.findIndex((playlist) => playlist.id === playlistId)
+              if (index !== -1) {
+                state.data[index].attributes = { ...state.data[index].attributes, ...body }
+              }
+            },
+          ),
+        )
+        try {
+          await queryFulfilled
+        } catch {
+          patchResult.undo()
+        }
+      },
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+- `EditPlaylistForm.tsx`
+
+```ts filename="EditPlaylistForm.ts" {7}
+export const EditPlaylistForm = ({ playlistId, handleSubmit, register, editPlaylist, setPlaylistId }: Props) => {
+  const [updatePlaylist] = useUpdatePlaylistMutation()
+
+  const onSubmit: SubmitHandler<UpdatePlaylistArgs> = (data) => {
+    if (!playlistId) return
+    updatePlaylist({ playlistId, body: data })
+    setPlaylistId(null)
+  }
+
+  /*...*/
+}
+```
+
+**Результат:**
+
+- при изменении плейлиста он сразу обновляется на `UI` 🚀
+- если вдруг во время запроса пойдет не так, тогда изменения на `UI` откатятс на предыдущее значение 🚀
+
+### selectCachedArgsForQuery
+
+Если перейти на другую страницу плейлистов, то `optimistic update` не работает 😢
+
+[selectCachedArgsForQuery](https://redux-toolkit.js.org/rtk-query/api/created-api/api-slice-utils#selectcachedargsforquery) извлекает аргументы запросов, закэшированных в `Redux Store`.
+Это позволяет получить все аргументы для запросов, имеющих активные кэши. Это полезно для отслеживания того,
+какие запросы были сделаны и с какими параметрами, и для повторного использования этих параметров при необходимости:
+
+```ts filename="playlistsApi.ts" {14-38}
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    updatePlaylist: build.mutation<void, { playlistId: string; body: UpdatePlaylistArgs }>({
+      query: ({ playlistId, body }) => ({ url: `playlists/${playlistId}`, method: "put", body }),
+      async onQueryStarted({ playlistId, body }, { dispatch, queryFulfilled, getState }) {
+        const args = playlistsApi.util.selectCachedArgsForQuery(getState(), "fetchPlaylists")
+
+        const patchResults: any[] = []
+
+        args.forEach((arg) => {
+          patchResults.push(
+            dispatch(
+              playlistsApi.util.updateQueryData(
+                "fetchPlaylists",
+                {
+                  pageNumber: arg.pageNumber,
+                  pageSize: arg.pageSize,
+                  search: arg.search,
+                },
+                (state) => {
+                  const index = state.data.findIndex((playlist) => playlist.id === playlistId)
+                  if (index !== -1) {
+                    state.data[index].attributes = { ...state.data[index].attributes, ...body }
+                  }
+                },
+              ),
+            ),
+          )
+        })
+
+        try {
+          await queryFulfilled
+        } catch {
+          patchResults.forEach((patchResult) => {
+            patchResult.undo()
+          })
+        }
+      },
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+**Результат:** `optimistic update` отрабатывает с `query`-параметрами 🚀
