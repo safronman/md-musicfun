@@ -129,12 +129,9 @@ const { data, isLoading } = useFetchPlaylistsQuery(
 - `authApi.ts`
 
 ```ts filename="src/features/auth/api/authApi.ts"
-import { baseApi } from "@/app/api/baseApi.ts"
-import type { MeResponseResponse } from "./authApi.types.ts"
-
 export const authApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
-    getMe: build.query<MeResponseResponse, void>({
+    getMe: build.query<MeResponse, void>({
       query: () => `auth/me`,
     }),
   }),
@@ -146,7 +143,7 @@ export const { useGetMeQuery } = authApi
 - `authApi.types.ts`
 
 ```ts filename="src/features/auth/api/authApi.types.ts"
-export type MeResponseResponse = {
+export type MeResponse = {
   userId: string
   login: string
 }
