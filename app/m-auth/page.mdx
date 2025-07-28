@@ -44,7 +44,7 @@ export const baseApi = createApi({
 export const authApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     /*...*/
-    login: build.mutation<AuthTokensResponse, LoginArgs>({
+    login: build.mutation<LoginResponse, LoginArgs>({
       query: (payload) => ({
         url: `auth/login`,
         method: "post",
@@ -60,7 +60,7 @@ export const authApi = baseApi.injectEndpoints({
 ```ts filename="authApi.types.ts"
 /*...*/
 
-export type AuthTokensResponse = {
+export type LoginResponse = {
   refreshToken: string
   accessToken: string
 }
@@ -330,7 +330,7 @@ export const baseApi = createApi({
 export const authApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     /*...*/
-    login: build.mutation<AuthTokensResponse, LoginArgs>({
+    login: build.mutation<LoginResponse, LoginArgs>({
       query: (payload) => ({
         url: `auth/login`,
         method: "post",

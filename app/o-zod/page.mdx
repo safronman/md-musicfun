@@ -190,6 +190,8 @@ export type CreatePlaylistArgs = z.infer<typeof createPlaylistSchema>
 
 ## Валидация ответов с сервера
 
+### Playlists
+
 **Определим схему для валидации ответа с сервера при получении плейлистов**
 
 - `common/schemas/schemas.ts`
@@ -210,7 +212,7 @@ export const coverSchema = z.object({
   width: z.int().positive(),
   height: z.int().positive(),
   fileSize: z.int().positive(),
-  url: z.string(),
+  url: z.url(),
 })
 
 export const imagesSchema = z.object({
@@ -317,7 +319,7 @@ export type UpdatePlaylistArgs = {
 }
 ```
 
-### fetchPlaylists validation
+#### fetchPlaylists validation
 
 <Callout type={"info"} emoji={"🔗"}>
   Начиная с версии [2.7.0 от 16.04.2025](https://github.com/reduxjs/redux-toolkit/releases/tag/v2.7.0)
@@ -370,7 +372,7 @@ export const playlistMetaSchema = z.object({
 - Ошибка выведется на экран 🚀
 - В консоли можно увидеть детали ошибки 🚀
 
-### createPlaylist validation
+#### createPlaylist validation
 
 По аналогии сделаем zod валидацию для создания плейлиста
 
@@ -402,12 +404,42 @@ export const playlistsApi = baseApi.injectEndpoints({
 
 **Результат:** допустите ошибку в `playlistCreateResponseSchema` и убедитесь, что валидация отработает верно 🚀
 
+#### uploadPlaylistCover validation
+
+Чтобы завершить `playlistApi`, реализуем еще `zod` валидацию для обновления обложки плейлиста
+
+```ts filename="playlistsApi.ts" {7-11}
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    uploadPlaylistCover: build.mutation({
+      query: ({ playlistId, file }: { playlistId: string; file: File }) => {
+        /*...*/
+      },
+      responseSchema: imagesSchema,
+      catchSchemaFailure: (err) => {
+        errorToast("Zod error. Details in the console", err.issues)
+        return { status: "CUSTOM_ERROR", error: "Schema validation failed" }
+      },
+      invalidatesTags: ["Playlist"],
+    }),
+    /*...*/
+  }),
+})
+```
+
+<Callout type={"warning"}>
+  Если бекенд ничего не возвращает, значит и валидировать ничего не нужно. Соответственно ендпоинты `deletePlaylist`,
+  `updatePlaylist` и `deletePlaylistCover` оставляем как есть.
+</Callout>
+
+**Результат:** покрыли `zod` валидацией все ответы от сервера для плейлистов 🚀
+
 ### withZodCatch
 
-Обратите внимание, что теперь нам в каждом ендпоинте где мы хотим сделать валидацию прмедтся дублировать
+Обратите внимание, что теперь нам в каждом ендпоинте где мы хотим сделать валидацию придется дублировать
 `catchSchemaFailure`
 
-```ts filename="playlistsApi.ts" {6-9, 15-18}
+```ts filename="playlistsApi.ts" {6-9, 15-18, 26-29}
 export const playlistsApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     fetchPlaylists: build.query({
@@ -428,6 +460,17 @@ export const playlistsApi = baseApi.injectEndpoints({
       },
       invalidatesTags: ["Playlist"],
     }),
+    uploadPlaylistCover: build.mutation({
+      query: ({ playlistId, file }: { playlistId: string; file: File }) => {
+        /*...*/
+      },
+      responseSchema: imagesSchema,
+      catchSchemaFailure: (err) => {
+        errorToast("Zod error. Details in the console", err.issues)
+        return { status: "CUSTOM_ERROR", error: "Schema validation failed" }
+      },
+      invalidatesTags: ["Playlist"],
+    }),
     /*...*/
   }),
 })
@@ -439,15 +482,13 @@ export const playlistsApi = baseApi.injectEndpoints({
 
 ```ts filename="withZodCatch.ts"
 import { errorToast } from "@/common/utils/errorToast.ts"
-import type { FetchBaseQueryError } from "@reduxjs/toolkit/query/react"
-import { z, type ZodType } from "zod"
+import { type FetchBaseQueryError, NamedSchemaError } from "@reduxjs/toolkit/query/react"
+import type { ZodType } from "zod"
 
 export const withZodCatch = <T extends ZodType>(schema: T) => ({
   responseSchema: schema,
-  catchSchemaFailure: (err: unknown): FetchBaseQueryError => {
-    if (err instanceof z.ZodError) {
-      errorToast("Zod error. Details in the console", err.issues)
-    }
+  catchSchemaFailure: (err: NamedSchemaError): FetchBaseQueryError => {
+    errorToast("Zod error. Details in the console", err.issues)
     return {
       status: "CUSTOM_ERROR",
       error: "Schema validation failed",
@@ -458,7 +499,7 @@ export const withZodCatch = <T extends ZodType>(schema: T) => ({
 
 - `playlistsApi.ts`
 
-```ts filename="playlistsApi.ts" {5, 10}
+```ts filename="playlistsApi.ts" {5, 10, 17}
 export const playlistsApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     fetchPlaylists: build.query({
@@ -471,6 +512,13 @@ export const playlistsApi = baseApi.injectEndpoints({
       ...withZodCatch(playlistCreateResponseSchema),
       invalidatesTags: ["Playlist"],
     }),
+    uploadPlaylistCover: build.mutation({
+      query: ({ playlistId, file }: { playlistId: string; file: File }) => {
+        /*...*/
+      },
+      ...withZodCatch(imagesSchema),
+      invalidatesTags: ["Playlist"],
+    }),
     /*...*/
   }),
 })
@@ -478,10 +526,225 @@ export const playlistsApi = baseApi.injectEndpoints({
 
 **Результат:** вынесли общую логику в утилитную функцию `withZodCatch` 🚀
 
+### auth
+
+Очень рекомендуем сделать по аналогии по аналогии самостоятельно, а потом свериться с нашим решением.
+
+- `auth/model/auth.schemas.ts`
+
+```ts filename="auth.schemas.ts"
+import * as z from "zod"
+
+export const meResponseSchema = z.object({
+  userId: z.string(),
+  login: z.string(),
+})
+
+export const loginResponseSchema = z.object({
+  refreshToken: z.jwt(),
+  accessToken: z.jwt(),
+})
+```
+
+- `authApi.types.ts`
+
+```ts filename="authApi.types.ts"
+import { loginResponseSchema, type meResponseSchema } from "@/features/auth/model/auth.schemas.ts"
+import * as z from "zod"
+
+export type MeResponse = z.infer<typeof meResponseSchema>
+export type LoginResponse = z.infer<typeof loginResponseSchema>
+
+// Arguments
+export type LoginArgs = {
+  code: string
+  redirectUri: string
+  rememberMe: boolean
+  accessTokenTTL?: string // e.g. "3m"
+}
+```
+
+- `authApi.ts`
+
+```ts filename="authApi.ts"
+export const authApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    getMe: build.query({
+      query: () => `auth/me`,
+      ...withZodCatch(meResponseSchema),
+      providesTags: ["Auth"],
+    }),
+    login: build.mutation({
+      query: (payload: LoginArgs) => ({
+        url: `auth/login`,
+        method: "post",
+        body: { ...payload, accessTokenTTL: "3m" },
+      }),
+      ...withZodCatch(loginResponseSchema),
+      /*...*/
+    }),
+    /*...*/
+  }),
+})
+```
+
+**Результат:** покрыли `zod` валидацией все ответы от сервера для `auth` 🚀
+
+### tracks
+
+Очень рекомендуем сделать по аналогии по аналогии самостоятельно, а потом свериться с нашим решением.
+
+- `tracks/model/tracks.schemas.ts`
+
+```ts filename="tracks.schemas.ts"
+import * as z from "zod"
+import { imagesSchema, currentUserReactionSchema, userSchema } from "@/common/schemas"
+
+export const trackAttachmentSchema = z.object({
+  id: z.string(),
+  addedAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  version: z.int().nonnegative(),
+  url: z.url(),
+  contentType: z.string(),
+  originalName: z.string(),
+  fileSize: z.int().nonnegative(),
+})
+
+export const trackRelationshipsSchema = z.object({
+  artists: z.object({
+    data: z.array(
+      z.object({
+        id: z.string(),
+        type: z.literal("artists"),
+      }),
+    ),
+  }),
+})
+
+export const trackAttributesSchema = z.object({
+  title: z.string(),
+  addedAt: z.iso.datetime(),
+  attachments: z.array(trackAttachmentSchema),
+  images: imagesSchema,
+  currentUserReaction: currentUserReactionSchema,
+  user: userSchema,
+  isPublished: z.boolean(),
+  publishedAt: z.iso.datetime(),
+})
+
+export const tracksMetaSchema = z.object({
+  nextCursor: z.string().nullable(),
+  page: z.int().positive(),
+  pageSize: z.int().positive(),
+  totalCount: z.int().positive().nullable(),
+  pagesCount: z.int().positive().nullable(),
+})
+
+export const tracksIncludedSchema = z.object({
+  id: z.string(),
+  type: z.literal("artists"),
+  attributes: z.object({
+    name: z.string(),
+  }),
+})
+
+export const trackDataSchema = z.object({
+  id: z.string(),
+  type: z.literal("tracks"),
+  attributes: trackAttributesSchema,
+  relationships: trackRelationshipsSchema,
+})
+
+export const fetchTracksResponseSchema = z.object({
+  data: z.array(trackDataSchema),
+  included: z.array(tracksIncludedSchema),
+  meta: tracksMetaSchema,
+})
+```
+
+- `tracksApi.types.ts`
+
+```ts filename="tracksApi.types.ts"
+export type TrackAttachment = z.infer<typeof trackAttachmentSchema>
+export type TrackRelationships = z.infer<typeof trackRelationshipsSchema>
+export type TrackAttributes = z.infer<typeof trackAttributesSchema>
+export type TrackData = z.infer<typeof trackDataSchema>
+export type TracksIncluded = z.infer<typeof tracksIncludedSchema>
+export type TracksMeta = z.infer<typeof tracksMetaSchema>
+export type FetchTracksResponse = z.infer<typeof fetchTracksResponseSchema>
+
+// Arguments
+export type FetchTracksArgs = {
+  pageNumber?: number
+  pageSize?: number
+  search?: string
+  sortBy?: "publishedAt" | "likesCount"
+  sortDirection?: "asc" | "desc"
+  tagsIds?: string[]
+  artistsIds?: string[]
+  userId?: string
+  includeDrafts?: boolean
+  paginationType?: "offset" | "cursor"
+  cursor?: string
+}
+```
+
+❗ `withZodCatch` добавьте самостоятельно
+
+**Результат:** покрыли `zod` валидацией все ответы от сервера для треков 🚀
+
 ## skipschemavalidation
 
-https://redux-toolkit.js.org/rtk-query/api/createApi#skipschemavalidation
+К минусам использования `zod` часто относят следующее:
 
-## подумать
+**1. Оверхед на продакшене**
 
-нужно ли покрывать другие ендпоинты...
+- Валидация на клиенте и сервере требует ресурсов (CPU и память).
+
+- Если схема сложная или данных очень много, проверка может замедлить обработку.
+
+- Иногда на продакшене разработчики предпочитают минимизировать валидацию (особенно если все данные уже проверяются
+  на уровне БД или API).
+
+**2. Размер бандла (для фронтенда)**
+
+- `Zod` добавляет в проект десятки килобайт к бандлу.
+
+- Для `SPA` или `PWA` это может быть заметным, особенно если использовать его повсюду.
+
+Поэтому если вышеперечисленные аргументы для играют ключевую роль, то в production zod можо отключить при помощи
+`skipschemavalidation`
+
+<Callout type={"info"} emoji={"🔗"}>
+  - [skipschemavalidation](https://redux-toolkit.js.org/rtk-query/api/createApi#skipschemavalidation)
+</Callout>
+
+**Глобальное использование:**
+
+```ts filename="baseApi.ts" {6}
+export const baseApi = createApi({
+  reducerPath: "baseApi",
+  tagTypes: ["Playlist", "Auth"],
+  endpoints: () => ({}),
+  baseQuery: baseQueryWithReauth,
+  skipSchemaValidation: process.env.NODE_ENV === "production",
+})
+```
+
+**Локальное использование (для отельных эндпоинтов):**
+
+```ts filename="playlistsApi" {6}
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchPlaylists: build.query({
+      query: (params: FetchPlaylistsArgs) => ({ url: `playlists`, params }),
+      ...withZodCatch(playlistsResponseSchema),
+      skipSchemaValidation: process.env.NODE_ENV === "production",
+      providesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+**Результат:** теперь вы знаете как гибко контролировать zod 🚀
