@@ -1,0 +1,161 @@
+import { Callout } from "nextra/components"
+
+# 12. Optimistic update
+
+[`Optimistic Update`](https://redux-toolkit.js.org/rtk-query/usage/manual-cache-updates#optimistic-updates) - an approach in application development where
+the user interface (`UI`) is updated before the server confirms the success of the operation.
+In other words, the application assumes that the operation (e.g., sending data to the server)
+will complete successfully, and immediately makes changes to the `UI`. If the operation on the server
+fails, the changes in the `UI` are rolled back:
+
+**Advantages of Optimistic Update:**
+
+- **improved user experience**: the user sees an instant response to their actions, making the application
+  more responsive;
+- **reduced perception of delay**: even with slow server request processing, the user immediately sees
+  the updated `UI`;
+
+**Disadvantages of Optimistic Update:**
+
+- **implementation complexity**: you need to account for the possibility of rolling back changes if the request fails with an error;
+- **potential inconsistency**: if the server returns an error and the application cannot correctly roll back changes,
+  the `UI` may remain in an incorrect state;
+
+## Editing a Playlist
+
+Let's rewrite playlist editing to use `optimistic update`.
+
+<Callout type={"info"} emoji={"🔗"}>
+  [onQueryStarted](https://redux-toolkit.js.org/rtk-query/api/createApi#onquerystarted) — is part of the configuration in `RTK
+  Query` that allows you to perform side effects and handle requests before they are sent. This
+  function is especially useful for optimistic state updates or for performing other asynchronous operations
+  that may be needed before the request completes.
+
+</Callout>
+
+<Callout type={"info"} emoji={"🔗"}>
+  [updateQueryData](https://redux-toolkit.js.org/rtk-query/api/created-api/api-slice-utils#updatequerydata) locally
+  updates data in the cache for a specific request and returns an action object. When `dispatch`ing this action,
+  the returned value from `dispatch` is a `patchResult` object. If you call `patchResult.undo()`, it will trigger
+  the rollback of changes
+
+</Callout>
+
+<Callout type={"info"} emoji={"🔗"}>
+  `queryFulfilled` — is a `promise` returned by `RTK Query` that resolves when the request is successfully completed.
+  You can use queryFulfilled to perform additional actions after successful request completion or to handle errors if
+  the request failed.
+</Callout>
+
+- `playlistsApi.ts`
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    updatePlaylist: build.mutation<void, { playlistId: string; body: UpdatePlaylistArgs }>({
+      query: ({ playlistId, body }) => ({ url: `playlists/${playlistId}`, method: "put", body }),
+      async onQueryStarted({ playlistId, body }, { dispatch, queryFulfilled }) {
+        const patchResult = dispatch(
+          playlistsApi.util.updateQueryData(
+            // name of the endpoint where cache needs to be updated
+            "fetchPlaylists",
+            // arguments for the endpoint
+            { pageNumber: 1, pageSize: 2, search: "" },
+            // `updateRecipe` - callback for updating cached state in a mutable way
+            (state) => {
+              const index = state.data.findIndex((playlist) => playlist.id === playlistId)
+              if (index !== -1) {
+                state.data[index].attributes = { ...state.data[index].attributes, ...body }
+              }
+            },
+          ),
+        )
+        try {
+          await queryFulfilled
+        } catch {
+          patchResult.undo()
+        }
+      },
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+- `EditPlaylistForm.tsx`
+
+```ts filename="EditPlaylistForm.ts" {7}
+export const EditPlaylistForm = ({ playlistId, handleSubmit, register, editPlaylist, setPlaylistId }: Props) => {
+  const [updatePlaylist] = useUpdatePlaylistMutation()
+
+  const onSubmit: SubmitHandler<UpdatePlaylistArgs> = (data) => {
+    if (!playlistId) return
+    updatePlaylist({ playlistId, body: data })
+    setPlaylistId(null)
+  }
+
+  /*...*/
+}
+```
+
+**Result:**
+
+- when editing a playlist, it immediately updates in the `UI` 🚀
+- if the request fails with an error, then the changes in the UI will be rolled back to the previous state 🚀
+
+### selectCachedArgsForQuery
+
+If you navigate to another page of playlists with different `query‑parameters`, optimistic update won't work 😢
+
+[selectCachedArgsForQuery](https://redux-toolkit.js.org/rtk-query/api/created-api/api-slice-utils#selectcachedargsforquery) extracts request arguments cached in the `Redux Store`.
+This allows you to get all arguments for requests that have active caches. This is useful for tracking
+which requests were made and with what parameters, and for reusing these parameters when necessary:
+
+```ts filename="playlistsApi.ts" {14-38}
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    updatePlaylist: build.mutation<void, { playlistId: string; body: UpdatePlaylistArgs }>({
+      query: ({ playlistId, body }) => ({ url: `playlists/${playlistId}`, method: "put", body }),
+      async onQueryStarted({ playlistId, body }, { dispatch, queryFulfilled, getState }) {
+        const args = playlistsApi.util.selectCachedArgsForQuery(getState(), "fetchPlaylists")
+
+        const patchResults: any[] = []
+
+        args.forEach((arg) => {
+          patchResults.push(
+            dispatch(
+              playlistsApi.util.updateQueryData(
+                "fetchPlaylists",
+                {
+                  pageNumber: arg.pageNumber,
+                  pageSize: arg.pageSize,
+                  search: arg.search,
+                },
+                (state) => {
+                  const index = state.data.findIndex((playlist) => playlist.id === playlistId)
+                  if (index !== -1) {
+                    state.data[index].attributes = { ...state.data[index].attributes, ...body }
+                  }
+                },
+              ),
+            ),
+          )
+        })
+
+        try {
+          await queryFulfilled
+        } catch {
+          patchResults.forEach((patchResult) => {
+            patchResult.undo()
+          })
+        }
+      },
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+**Result:** `optimistic update` works with `query`-parameters 🚀
