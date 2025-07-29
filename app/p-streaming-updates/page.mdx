@@ -12,6 +12,8 @@ import { Callout } from "nextra/components"
 
 </Callout>
 
+## Playlist created
+
 Когда мы находимся на странице публичных плейлистов, то любой пользователь может создать новый плейлист.
 И хотелось бы об этом знать сразу же без перезагрузки увидеть новый плейлист. Для этого будем использовать библиотеку
 [socket.io](https://socket.io/)
@@ -24,7 +26,23 @@ pnpm add socket.io-client
 
 Реализуем нашу задачу
 
-- [path](https://socket.io/docs/v4/client-options/#path)
+- `playlistsApi.types.ts`
+
+```ts filename="playlistsApi.types.ts"
+// WebSocket Events
+export type PlaylistCreatedEvent = {
+  type: "tracks.playlist-created"
+  payload: {
+    data: PlaylistData
+  }
+}
+```
+
+- `playlistsApi.ts`
+
+<Callout type={"info"} emoji={"🔗"}>
+  - [path](https://socket.io/docs/v4/client-options/#path)
+</Callout>
 
 ```ts filename="playlistsApi.ts" {6-36}
 export const playlistsApi = baseApi.injectEndpoints({
@@ -184,4 +202,124 @@ export const playlistsApi = baseApi.injectEndpoints({
 
 **Результат:** зарефакоторили код 🚀
 
-## 3
+## Playlist updated
+
+Реализуем прослушивание еще одного события: [обновление плейлиста](https://musicfun.it-incubator.app/async-api#operation-publish-tracks.playlist-updated)
+
+- `playlistsApi.types.ts`
+
+```ts filename="playlistsApi.types.ts"
+// WebSocket Events
+/*...*/
+
+export type PlaylistUpdatedEvent = {
+  type: "tracks.playlist-updated"
+  payload: {
+    data: PlaylistData
+  }
+}
+```
+
+- `playlistsApi.ts`
+
+```ts filename="playlistsApi.ts" {21-29, 34}
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchPlaylists: build.query({
+      query: (params: FetchPlaylistsArgs) => ({ url: `playlists`, params }),
+      ...withZodCatch(playlistsResponseSchema),
+      keepUnusedDataFor: 0, // 👈 cleanup immediately after unmount
+      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
+        // Wait for the initial query to resolve before proceeding
+        await cacheDataLoaded
+
+        const unsubscribe = subscribeToEvent<PlaylistCreatedEvent>(SOCKET_EVENTS.PLAYLIST_CREATED, (msg) => {
+          const newPlaylist = msg.payload.data
+          updateCachedData((state) => {
+            state.data.pop()
+            state.data.unshift(newPlaylist)
+            state.meta.totalCount = state.meta.totalCount + 1
+            state.meta.pagesCount = Math.ceil(state.meta.totalCount / state.meta.pageSize)
+          })
+        })
+
+        const unsubscribe2 = subscribeToEvent<PlaylistUpdatedEvent>(SOCKET_EVENTS.PLAYLIST_UPDATED, (msg) => {
+          const newPlaylist = msg.payload.data
+          updateCachedData((state) => {
+            const index = state.data.findIndex((playlist) => playlist.id === newPlaylist.id)
+            if (index !== -1) {
+              state.data[index] = { ...state.data[index], ...newPlaylist }
+            }
+          })
+        })
+
+        // CacheEntryRemoved will resolve when the cache subscription is no longer active
+        await cacheEntryRemoved
+        unsubscribe()
+        unsubscribe2()
+      },
+      providesTags: ["Playlist"],
+    }),
+    /*...*/
+  }),
+})
+```
+
+**Результат:** при изменении плейлиста пользователь по вебсокетам будет получать обновленную информацию 🚀
+
+## Массив отписок
+
+Для того чтобы сделать работу с подписками и отписками чище и масштабируемее будем использовать массив отписок.
+
+Будем использовать простейший способ — хранить отписки в массиве и потом пробегаться по ним при cleanup:
+
+- `playlistsApi.ts`
+
+```ts filename="playlistsApi.ts" {11-30, 34}
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchPlaylists: build.query({
+      query: (params: FetchPlaylistsArgs) => ({ url: `playlists`, params }),
+      ...withZodCatch(playlistsResponseSchema),
+      keepUnusedDataFor: 0, // 👈 cleanup immediately after unmount
+      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
+        // Wait for the initial query to resolve before proceeding
+        await cacheDataLoaded
+
+        const unsubscribes = [
+          subscribeToEvent<PlaylistCreatedEvent>(SOCKET_EVENTS.PLAYLIST_CREATED, (msg) => {
+            const newPlaylist = msg.payload.data
+            updateCachedData((state) => {
+              state.data.pop()
+              state.data.unshift(newPlaylist)
+              state.meta.totalCount = state.meta.totalCount + 1
+              state.meta.pagesCount = Math.ceil(state.meta.totalCount / state.meta.pageSize)
+            })
+          }),
+          subscribeToEvent<PlaylistUpdatedEvent>(SOCKET_EVENTS.PLAYLIST_UPDATED, (msg) => {
+            const newPlaylist = msg.payload.data
+            updateCachedData((state) => {
+              const index = state.data.findIndex((playlist) => playlist.id === newPlaylist.id)
+              if (index !== -1) {
+                state.data[index] = { ...state.data[index], ...newPlaylist }
+              }
+            })
+          }),
+        ]
+
+        // CacheEntryRemoved will resolve when the cache subscription is no longer active
+        await cacheEntryRemoved
+        unsubscribes.forEach((unsubscribe) => unsubscribe())
+      },
+      providesTags: ["Playlist"],
+    }),
+    /*...*/
+  }),
+})
+```
+
+**Результат:**
+
+- Чисто и читаемо 🚀
+- Можно легко добавлять новые подписки 🚀
+- Не нужно плодить unsubscribe1, unsubscribe2 и т.д. 🚀
