@@ -1,0 +1,621 @@
+import { Callout } from "nextra/components"
+
+# 11. Error Handling
+
+In `RTK Query`, error handling can be performed for each request and at the global level:
+
+<Callout type={"info"} emoji={"🔗"}>
+  - [Error Handling](https://redux-toolkit.js.org/rtk-query/usage/error-handling)
+
+- [Type safe error handling](https://redux-toolkit.js.org/rtk-query/usage-with-typescript#type-safe-error-handling)
+
+</Callout>
+
+## Error Handling at useQuery and useMutation Level
+
+`RTK Query` returns a result object that contains `error` and `isError` values,
+which can be used in a component to display and handle errors:
+
+```tsx filename="PlaylistsPage.tsx" /isError/ /error/
+export const PlaylistsPage = () => {
+  const { data, isLoading, error, isError } = useFetchPlaylistsQuery({
+    search: debounceSearch,
+    pageNumber: currentPage,
+    pageSize,
+  })
+
+  if (error) {
+    console.log(error)
+  }
+
+  /*...*/
+}
+```
+
+In `playlistApi`, for demonstration purposes, let's break the `URL`. For example, like this:
+
+```ts filename="playlistApi.ts" /playlists2/
+  fetchPlaylists: build.query<PlaylistsResponse, FetchPlaylistsArgs>({
+      query: (params) => ({ url: `playlists2`, params }),
+      providesTags: ['Playlist'],
+    }),
+```
+
+In the console we will see the following error:
+
+```bash filename="console"
+{
+  "status": 404,
+  "data": {
+    "error": "Not Found",
+    "message": "Cannot GET /api/1.0/playlists2?search=&pageNumber=1&pageSize=2",
+    "statusCode": 404
+  }
+}
+```
+
+We could write error handling like this:
+
+```tsx filename="PlaylistsPage.tsx" {9}
+export const PlaylistsPage = () => {
+  const { data, isLoading, error } = useFetchPlaylistsQuery({
+    search: debounceSearch,
+    pageNumber: currentPage,
+    pageSize,
+  })
+
+  if (error) {
+    toast(error.data.error, { type: "error", theme: "colored" })
+  }
+
+  /*...*/
+}
+```
+
+But this option won't work due to `TS`. According to the [documentation](https://redux-toolkit.js.org/rtk-query/usage-with-typescript#type-safe-error-handling), `RTK Query` has several error types.
+
+#### FetchBaseQueryError
+
+When an error is correctly returned from the base query, `RTK Query` will provide this error directly
+
+- `'FETCH_ERROR'` - network error
+- `'PARSING_ERROR'` - parsing error
+- `'CUSTOM_ERROR'` - custom error type
+- `'HTTP status code'` - status code error (401, 403, 500, etc.)
+
+#### SerializedError
+
+If custom code throws an unexpected error (for example, `throw new Error`).
+In this case, the error will be converted to `SerializedError` format.
+
+#### Local Error Handling
+
+- `PlaylistsPage.tsx`
+
+```tsx filename="PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  const { data, isLoading, error } = useFetchPlaylistsQuery({
+    search: debounceSearch,
+    pageNumber: currentPage,
+    pageSize,
+  })
+
+  useEffect(() => {
+    if (!error) return
+    if ("status" in error) {
+      // FetchBaseQueryError
+      const errMsg = "error" in error ? error.error : (error.data as { message: string }).message
+      toast(errMsg, { type: "error", theme: "colored" })
+    } else {
+      // SerializedError
+      toast(error.message || "Some error occurred", { type: "error", theme: "colored" })
+    }
+  }, [error])
+
+  /*...*/
+}
+```
+
+**Result:** we will see an error message notification on screen 🚀
+
+If we now comment out `// 'API-KEY': import.meta.env.VITE_API_KEY,`, then there will be status code 429 and the error
+will need to be handled differently
+
+```bash filename="console"
+{
+  "status": 429,
+  "data": {
+    "message": "API key is invalid or not passed. (code=2) ",
+    "statusCode": 429
+  }
+}
+```
+
+If we write it straightforwardly, it will look like this
+
+```tsx filename="PlaylistsPage.tsx"
+useEffect(() => {
+  if (!error) return
+  if ("status" in error) {
+    // FetchBaseQueryError
+    const errMsg =
+      "error" in error
+        ? error.error
+        : (
+            error.data as {
+              error: string
+            }
+          ).error ||
+          (error.data as { message: string }).message ||
+          "Some error occurred"
+    toast(errMsg, { type: "error", theme: "colored" })
+  } else {
+    // SerializedError
+    toast(error.message || "Some error occurred", { type: "error", theme: "colored" })
+  }
+}, [error])
+```
+
+**Result:** we managed to handle errors, but:
+
+1. We got a component cluttered with logic 😢
+2. The logic looks quite cumbersome and poorly readable 😢
+3. We'll have to write approximately the same logic throughout the application, in all query requests and mutations 😢
+
+Therefore, let's immediately do it differently and handle errors globally 🚀
+
+## Global Error Handling with baseQuery
+
+For global error handling for all requests, a
+[custom `baseQuery`](https://redux-toolkit.js.org/rtk-query/usage-with-typescript#typing-a-basequery) is used,
+allowing you to intercept errors at the `API` level.
+
+### Status codes (404, 429)
+
+```ts filename="baseApi.ts"
+export const baseApi = createApi({
+  reducerPath: "baseApi",
+  tagTypes: ["Playlist"],
+  baseQuery: async (args, api, extraOptions) => {
+    const result = await fetchBaseQuery({
+      baseUrl: import.meta.env.VITE_BASE_URL,
+      headers: {
+        // "API-KEY": import.meta.env.VITE_API_KEY,
+      },
+      prepareHeaders: (headers) => {
+        headers.set("Authorization", `Bearer ${import.meta.env.VITE_ACCESS_TOKEN}`)
+        return headers
+      },
+    })(args, api, extraOptions)
+
+    if (result.error) {
+      switch (result.error.status) {
+        case 404:
+          toast((result.error.data as { error: string }).error, { type: "error", theme: "colored" })
+          break
+
+        case 429:
+          // ✅ 1. Type Assertions
+          // toast((result.error.data as { message: string }).message, { type: 'error', theme: 'colored' })
+          // ✅ 2. JSON.stringify
+          // toast(JSON.stringify(result.error.data), { type: 'error', theme: 'colored' })
+          // ✅ 3. Type Predicate
+          if (isErrorWithMessage(result.error.data)) {
+            toast(result.error.data.message, { type: "error", theme: "colored" })
+          } else {
+            toast(JSON.stringify(result.error.data), { type: "error", theme: "colored" })
+          }
+          break
+
+        default:
+          toast("Some error occurred", { type: "error", theme: "colored" })
+      }
+    }
+
+    return result
+  },
+  endpoints: () => ({}),
+})
+```
+
+<Callout type={"info"} emoji={"🔗"}>
+  - [Options for handling `unknown` errors](https://www.totaltypescript.com/concepts/object-is-of-type-unknown).
+</Callout>
+
+##### 1. Type Assertions
+
+Type casting through `as` (`type assertion`) can lead to unexpected errors, so it should only be used
+if you are confident about the data type:
+
+- [Type Assertions: TS documentation](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#type-assertions);
+- [Type Assertions: Total TypeScript](https://www.totaltypescript.com/concepts/type-assertions).
+
+##### 2. JSON.stringify
+
+Universal and simple to implement option.
+
+##### 3. Type Predicate
+
+Use the helper function [isErrorWithMessage](https://redux-toolkit.js.org/rtk-query/usage-with-typescript#inline-error-handling-example).
+
+<Callout type={"info"} emoji={'🔗'}>
+  Good, but the most complex option to implement:
+  - [Using type predicates](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates);
+
+- [Changes in TS version
+  5.5](https://devblogs.microsoft.com/typescript/announcing-typescript-5-5/#inferred-type-predicates).
+
+</Callout>
+
+Create a utility function `isErrorWithMessage` in `src/common/utils/isErrorWithMessage.ts`
+
+```ts filename="src/common/utils/isErrorWithMessage.ts"
+/* The syntax error is { message: string } means that if the function returns true, TypeScript will treat
+error as an object with a required string property message. */
+export function isErrorWithMessage(error: unknown): error is { message: string } {
+  return (
+    typeof error === "object" && // Check that error is an object
+    error != null && // Make sure it's not null
+    "message" in error && // Check that the object has a 'message' property
+    typeof (error as Record<string, unknown>).message === "string" // Make sure it's a string
+  )
+}
+```
+
+The `isErrorWithMessage` function is a type predicate in `TypeScript`. It checks whether
+the passed `error` value is an object containing a `message` property of type string.
+
+`error is { message: string }` – a type predicate that tells `TypeScript`: "if
+the function returns `true`, then error is considered an object with a `message` field of type `string`".
+Without this notation, `TS` would only see `boolean`.
+
+By analogy, let's create `isErrorWithError` for 404.
+
+Final result:
+
+```ts filename="baseApi.ts"
+if (result.error) {
+  switch (result.error.status) {
+    case 404:
+      if (isErrorWithError(result.error.data)) {
+        toast(result.error.data.error, { type: "error", theme: "colored" })
+      } else {
+        toast(JSON.stringify(result.error.data), { type: "error", theme: "colored" })
+      }
+      break
+
+    case 429:
+      if (isErrorWithMessage(result.error.data)) {
+        toast(result.error.data.message, { type: "error", theme: "colored" })
+      } else {
+        toast(JSON.stringify(result.error.data), { type: "error", theme: "colored" })
+      }
+      break
+
+    default:
+      toast("Some error occurred", { type: "error", theme: "colored" })
+  }
+}
+```
+
+Universal generic function
+
+```ts filename="isErrorWithProperty.ts"
+export function isErrorWithProperty<T extends string>(error: unknown, property: T): error is Record<T, string> {
+  return (
+    typeof error === "object" &&
+    error != null &&
+    property in error &&
+    typeof (error as Record<string, unknown>)[property] === "string"
+  )
+}
+```
+
+Usage
+
+`isErrorWithProperty(result.error.data, 'error')`
+`isErrorWithProperty(result.error.data, 'message')`
+
+**Result:** handled 404 and 429 status codes 🚀
+
+### Fetch, parsing, custom, timeout error
+
+<Callout type={'info'} emoji={'🔗'}>
+
+[fetchBaseQuery signature](https://redux-toolkit.js.org/rtk-query/api/fetchBaseQuery#signature)
+
+</Callout>
+
+```ts filename="baseApi.ts"
+case 'FETCH_ERROR':
+case 'PARSING_ERROR':
+case 'CUSTOM_ERROR':
+case 'TIMEOUT_ERROR':
+  toast(result.error.error, { type: 'error', theme: 'colored' })
+  break
+```
+
+How to reproduce errors
+
+#### 'FETCH_ERROR'
+
+Open `developer tools`, enable `offline` mode and try to create a playlist
+
+#### 'PARSING_ERROR'
+
+In baseApi we will throw an error instead of returning valid `JSON`
+
+```ts
+responseHandler: () => {
+ throw new Error('PARSING_ERROR')
+},
+```
+
+**Result:** error handled 🚀
+
+### Status codes (403, 401, 500)
+
+#### 403
+
+To reproduce this status code:
+
+- try to delete someone else's playlist
+- try to create more than 10 playlists
+
+Here the response will be a bit more complex. The backend returns an error according to [JSON:API specification](https://jsonapi.org/)
+
+```ts filename="isErrorWithDetailArray.ts"
+export function isErrorWithDetailArray(error: unknown): error is { errors: { detail: string }[] } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errors" in error &&
+    Array.isArray((error as any).errors) &&
+    (error as any).errors.length > 0 &&
+    typeof (error as any).errors[0].detail === "string"
+  )
+}
+```
+
+```ts filename="baseApi.ts"
+case 403:
+  if (isErrorWithDetailArray(result.error.data)) {
+    toast(result.error.data.errors[0].detail, { type: "error", theme: "colored" })
+  } else {
+    toast(JSON.stringify(result.error.data), { type: "error", theme: "colored" })
+  }
+break
+```
+
+**Result:** error handled 🚀
+
+#### 400
+
+Try to create a playlist with more than 100 characters
+
+```ts filename="baseApi.ts"
+case 400:
+case 403:
+  if (isErrorWithDetailArray(result.error.data)) {
+    toast(trimToMaxLength(result.error.data.errors[0].detail), { type: "error", theme: "colored" })
+  } else {
+    toast(JSON.stringify(result.error.data), { type: "error", theme: "colored" })
+  }
+break
+```
+
+- `common/utils/trimToMaxLength.ts`
+
+```ts filename="common/utils/trimToMaxLength.ts"
+export function trimToMaxLength(str: string, maxLength = 100): string {
+  return str.length > maxLength ? str.slice(0, maxLength - 3) + "..." : str
+}
+```
+
+#### 401
+
+Try passing an invalid `access token`. You'll get an authorization error. Here everything is simple, this case is already written in
+429
+
+```ts filename="baseApi.ts"
+case 401:
+case 429:
+  if (isErrorWithProperty(result.error.data, 'message')) {
+    toast(result.error.data.message, { type: 'error', theme: 'colored' })
+  } else {
+  toast(JSON.stringify(result.error.data), { type: 'error', theme: 'colored' })
+  }
+break
+```
+
+#### 500-599
+
+**It's dangerous to show "raw" server errors (500–599) to the user:**
+
+1. **Sensitive information leakage**
+   Server errors often contain internal implementation details: `stack trace`, table names, SQL queries,
+   internal paths, file names, etc. This information can be used by attackers to attack the system.
+
+2. **Hints for hackers**
+   Messages like `Database connection failed` or `Invalid credentials for user admin` give attackers hints
+   about where the problem occurred and can speed up vulnerability detection.
+
+3. **Application architecture disclosure**
+   Messages like `NullReferenceException in UserService` or `ModuleNotFoundError in utils/logger.js` reveal
+   architecture details, which simplifies system analysis for an attacker.
+
+4. **Unpredictability of error content**
+   The server can return anything: private keys, tokens, passwords, and other critical data if they accidentally
+   end up in the error text.
+
+**The right way**
+
+Show the user only a safe universal message, for example:
+`Something went wrong on the server. Please try again later.`
+or
+`Server error occurred. Please try again later.`
+
+**All error details should be logged on the server and be accessible only to developers.**
+
+```ts filename="baseApi.ts"
+default:
+  if (result.error.status >= 500 && result.error.status < 600) {
+    toast("Server error occurred. Please try again later.", { type: "error", theme: "colored" })
+  } else {
+    toast("Some error occurred", { type: "error", theme: "colored" })
+  }
+```
+
+**Result:** handled all application errors 🚀
+
+### Refactoring
+
+#### Step 1
+
+To clean up the `baseApi` code from details, extract the error handling logic into a utility function `handleErrors`:
+
+```ts filename="baseApi.ts" {8}
+export const baseApi = createApi({
+  baseQuery: async (args, api, extraOptions) => {
+    const result = await fetchBaseQuery({
+      /*...*/
+    })(args, api, extraOptions)
+
+    if (result.error) {
+      handleErrors(result.error)
+    }
+
+    return result
+  },
+})
+```
+
+- `common/utils/handleErrors.ts`
+
+```ts filename="common/utils/handleErrors.ts"
+export const handleErrors = (error: FetchBaseQueryError) => {
+  if (error) {
+    switch (error.status) {
+      case "FETCH_ERROR":
+      case "PARSING_ERROR":
+      case "CUSTOM_ERROR":
+      case "TIMEOUT_ERROR":
+        toast(error.error, { type: "error", theme: "colored" })
+        break
+
+      case 400:
+      case 403:
+        if (isErrorWithDetailArray(error.data)) {
+          toast(trimToMaxLength(error.data.errors[0].detail), { type: "error", theme: "colored" })
+        } else {
+          toast(JSON.stringify(error.data), { type: "error", theme: "colored" })
+        }
+        break
+
+      case 404:
+        if (isErrorWithProperty(error.data, "error")) {
+          toast(error.data.error, { type: "error", theme: "colored" })
+        } else {
+          toast(JSON.stringify(error.data), { type: "error", theme: "colored" })
+        }
+        break
+
+      case 401:
+      case 429:
+        if (isErrorWithProperty(error.data, "message")) {
+          toast(error.data.message, { type: "error", theme: "colored" })
+        } else {
+          toast(JSON.stringify(error.data), { type: "error", theme: "colored" })
+        }
+        break
+
+      default:
+        if (error.status >= 500 && error.status < 600) {
+          toast("Server error occurred. Please try again later.", { type: "error", theme: "colored" })
+        } else {
+          toast("Some error occurred", { type: "error", theme: "colored" })
+        }
+    }
+  }
+}
+```
+
+#### Step 2
+
+To display errors, we everywhere specify the style for the error toaster (`{ type: "error", theme: "colored" }`)
+
+Let's create 2 helper functions for toasts
+
+- `common/utils/errorToast.ts`
+
+```ts filename="errorToast.ts"
+export const errorToast = (message: string, error?: unknown) => {
+  toast(message, { theme: "colored", type: "error" })
+
+  if (error) {
+    console.error(`${message}\n`, error)
+  }
+}
+```
+
+- `common/utils/successToast.ts`
+
+```ts filename="successToast.ts"
+export const successToast = (message: string) => {
+  toast(message, { theme: "colored", type: "success" })
+}
+```
+
+- `handleErrors.ts`
+
+```ts filename="handleErrors.ts" /errorToast/
+export const handleErrors = (error: FetchBaseQueryError) => {
+  if (error) {
+    switch (error.status) {
+      case "FETCH_ERROR":
+      case "PARSING_ERROR":
+      case "CUSTOM_ERROR":
+      case "TIMEOUT_ERROR":
+        errorToast(error.error)
+        break
+
+      case 400:
+      case 403:
+        if (isErrorWithDetailArray(error.data)) {
+          errorToast(trimToMaxLength(error.data.errors[0].detail))
+        } else {
+          errorToast(JSON.stringify(error.data))
+        }
+        break
+
+      case 404:
+        if (isErrorWithProperty(error.data, "error")) {
+          errorToast(error.data.error)
+        } else {
+          errorToast(JSON.stringify(error.data))
+        }
+        break
+
+      case 401:
+      case 429:
+        if (isErrorWithProperty(error.data, "message")) {
+          errorToast(error.data.message)
+        } else {
+          errorToast(JSON.stringify(error.data))
+        }
+        break
+
+      default:
+        if (error.status >= 500 && error.status < 600) {
+          errorToast("Server error occurred. Please try again later.", error)
+        } else {
+          errorToast("Some error occurred")
+        }
+    }
+  }
+}
+```
+
+<Callout type={"warning"}>Replace `toast` with `errorToast` in the `PlaylistCover.ts` component</Callout>
+
+**Result:** refactoring completed, all errors handled 🚀
