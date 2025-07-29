@@ -1,0 +1,434 @@
+import { Callout } from "nextra/components"
+
+# 9. Infinite Queries
+
+Let’s implement infinite scrolling on the Tracks page.
+
+<Callout type={"info"} emoji={"🔗"}>
+  [Infinite Queries](https://redux-toolkit.js.org/rtk-query/usage/infinite-queries)
+</Callout>
+
+`infiniteQuery` is ideal for:
+
+- Infinite scroll
+- "Load more" buttons
+- News or post feeds
+- When you want to display all data in a single list
+
+## Cursor Pagination
+
+Cursor pagination uses a unique pointer (a cursor) instead of page numbers to split data into pages.
+
+**How it works:**
+
+- The cursor is the ID of the last item on the current page
+- The next page starts after that cursor
+- No gaps, even if new records are added
+
+**Advantages:**
+
+- Consistency — no duplicates when new records are inserted
+- Performance — faster for large datasets
+- Real-time — works well with constantly updating data
+
+**Disadvantages:**
+
+- Cannot jump to arbitrary pages
+- Forward-only; usually you cannot go back
+
+**Ideal for:** news feeds, chats, infinite scrolling.
+
+### API
+
+- `features/tracks/api/tracksApi.ts`
+
+```ts filename="features/tracks/api/tracksApi.ts"
+export const tracksApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchTracks: build.infiniteQuery<FetchTracksResponse, void, string | undefined>({
+      infiniteQueryOptions: {
+        initialPageParam: undefined,
+        getNextPageParam: (lastPage) => lastPage.meta.nextCursor || undefined,
+      },
+      query: ({ pageParam }) => ({
+        url: "playlists/tracks",
+        params: { cursor: pageParam, pageSize: 5, paginationType: "cursor" },
+      }),
+    }),
+  }),
+})
+export const { useFetchTracksInfiniteQuery } = tracksApi
+```
+
+- `features/tracks/api/tracksApi.types.ts`
+
+```ts filename="features/tracks/api/tracksApi.types.ts"
+import type { CurrentUserReaction } from "@/common/enums"
+import type { Images, User } from "@/common/types"
+
+export type FetchTracksResponse = {
+  data: TrackData[]
+  included: TracksIncluded[]
+  meta: TracksMeta
+}
+
+export type TrackData = {
+  id: string
+  type: "tracks"
+  attributes: TrackAttributes
+  relationships: TrackRelationships
+}
+
+export type TracksIncluded = {
+  id: string
+  type: "artists"
+  attributes: { name: string }
+}
+
+export type TracksMeta = {
+  nextCursor: string | null
+  page: number
+  pageSize: number
+  totalCount: number | null
+  pagesCount: number | null
+}
+
+export type TrackAttributes = {
+  title: string
+  addedAt: string
+  attachments: TrackAttachment[]
+  images: Images
+  currentUserReaction: CurrentUserReaction
+  user: User
+  isPublished: boolean
+  publishedAt: string
+}
+
+export type TrackRelationships = {
+  artists: { data: { id: string; type: string } }
+}
+
+export type TrackAttachment = {
+  id: string
+  addedAt: string
+  updatedAt: string
+  version: number
+  url: string
+  contentType: string
+  originalName: string
+  fileSize: number
+}
+
+// Arguments
+export type FetchTracksArgs = {
+  pageNumber?: number
+  pageSize?: number
+  search?: string
+  sortBy?: "publishedAt" | "likesCount"
+  sortDirection?: "asc" | "desc"
+  tagsIds?: string[]
+  artistsIds?: string[]
+  userId?: string
+  includeDrafts?: boolean
+  paginationType?: "offset" | "cursor"
+  cursor?: string
+}
+```
+
+## UI
+
+Call the `useFetchTracksInfiniteQuery` hook and examine the returned structure.
+
+```tsx filename="TracksPage.tsx"
+export const TracksPage = () => {
+  const { data } = useFetchTracksInfiniteQuery()
+  console.log(data)
+  return (
+    <div>
+      <h1>Tracks Page</h1>
+    </div>
+  )
+}
+```
+
+The hook returns an object `{ pages: DataType[]; pageParams: PageParam[] }`, which contains all loaded pages and the parameters used to fetch them. This structure lets you choose whether to render pages separately or merge them into a single list, control how many pages are kept in cache, and dynamically determine the next (or previous) page based on data or parameters.
+
+![infinite query](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/c6dd0f71-4977-48a6-adc0-035e123683f5_infinite-query.png)
+
+To render the data, use `flat` or `flatMap` to simplify nested arrays:
+
+<Callout>
+  Use `flat` or `flatMap` to reduce nesting: -
+  [flat](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/flat) -
+  [flatMap](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/flatMap)
+</Callout>
+
+- `TracksPage.tsx`
+
+```tsx filename="TracksPage.tsx"
+import { useFetchTracksInfiniteQuery } from "../../api/tracksApi.ts"
+import s from "./TracksPage.module.css"
+
+export const TracksPage = () => {
+  const { data } = useFetchTracksInfiniteQuery({ paginationType: "cursor", pageSize: 5 })
+  const pages = data?.pages.map((page) => page.data).flat() || []
+  // const pages = data?.pages.flatMap((page) => page.data) || []
+
+  return (
+    <div>
+      <h1>Tracks Page</h1>
+      <div className={s.list}>
+        {pages.map((track) => {
+          const { title, user, attachments } = track.attributes
+          return (
+            <div key={track.id} className={s.item}>
+              <div>
+                <p>Title: {title}</p>
+                <p>Name: {user.name}</p>
+              </div>
+              {attachments.length ? <audio controls src={attachments[0].url} /> : "no file"}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+- `TracksPage.module.css`
+
+```css filename="TracksPage.module.css"
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+```
+
+**Result:** The first page renders 🚀
+
+### Load More Button
+
+```tsx filename="TracksPage.tsx"
+export const TracksPage = () => {
+  const { data, isLoading, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useFetchTracksInfiniteQuery()
+
+  const pages = data?.pages.flatMap((page) => page.data) || []
+
+  const loadMoreHandler = () => {
+    if (hasNextPage && !isFetching) fetchNextPage()
+  }
+
+  return (
+    <div>
+      {/*...*/}
+      {!isLoading && (
+        <>
+          {hasNextPage ? (
+            <button onClick={loadMoreHandler} disabled={isFetching}>
+              {isFetchingNextPage ? "Loading..." : "Load More"}
+            </button>
+          ) : (
+            <p>Nothing more to load</p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+```
+
+**Result:** Clicking "Load More" fetches additional tracks until all pages are loaded 🚀
+
+### Infinite Scroll
+
+To auto-load more tracks when scrolling to the bottom, detect when the user reaches the page end and immediately fetch the next page. You can use the `react-intersection-observer` library or implement it manually:
+
+```tsx filename="TracksPage.tsx"
+export const TracksPage = () => {
+  const { data, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useFetchTracksInfiniteQuery()
+
+  const observerRef = useRef<HTMLDivElement>(null)
+  const pages = data?.pages.flatMap((page) => page.data) || []
+
+  const loadMoreHandler = useCallback(() => {
+    if (hasNextPage && !isFetching) fetchNextPage()
+  }, [hasNextPage, isFetching, fetchNextPage])
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.length > 0 && entries[0].isIntersecting) loadMoreHandler()
+      },
+      { root: null, rootMargin: "100px", threshold: 0.1 },
+    )
+
+    const current = observerRef.current
+    if (current) observer.observe(current)
+    return () => current && observer.unobserve(current)
+  }, [loadMoreHandler])
+
+  return (
+    <div>
+      <h1>Tracks Page</h1>
+      <div className={s.list}>{/*...render tracks...*/}</div>
+
+      {hasNextPage && (
+        <div ref={observerRef}>
+          {isFetchingNextPage ? <div>Loading more tracks...</div> : <div style={{ height: "20px" }} />}
+        </div>
+      )}
+
+      {!hasNextPage && pages.length > 0 && <p>Nothing more to load</p>}
+    </div>
+  )
+}
+```
+
+**Result:** Infinite scroll is implemented 🚀
+
+### Decomposition
+
+- `common/hooks/useInfiniteScroll.ts`
+
+```ts filename="useInfiniteScroll.ts"
+import { useCallback, useEffect, useRef } from "react"
+
+type Props = {
+  hasNextPage: boolean
+  isFetching: boolean
+  fetchNextPage: () => void
+  rootMargin?: string
+  threshold?: number
+}
+
+export const useInfiniteScroll = ({
+  hasNextPage,
+  isFetching,
+  fetchNextPage,
+  rootMargin = "100px",
+  threshold = 0.1,
+}: Props) => {
+  const observerRef = useRef<HTMLDivElement>(null)
+  const loadMoreHandler = useCallback(() => {
+    if (hasNextPage && !isFetching) fetchNextPage()
+  }, [hasNextPage, isFetching, fetchNextPage])
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.length > 0 && entries[0].isIntersecting) loadMoreHandler()
+      },
+      { root: null, rootMargin, threshold },
+    )
+
+    const current = observerRef.current
+    if (current) observer.observe(current)
+    return () => current && observer.unobserve(current)
+  }, [loadMoreHandler, rootMargin, threshold])
+
+  return { observerRef }
+}
+```
+
+- `TracksList.tsx`
+
+<Callout type={"warning"}>Move the styles from `TracksPage.module.css` into `TracksList.module.css`</Callout>
+
+```tsx filename="TracksList.tsx"
+import type { TrackData } from "../../../api/tracksApi.types.ts"
+import s from "./TracksList.module.css"
+
+type Props = { tracks: TrackData[] }
+export const TracksList = ({ tracks }: Props) => (
+  <div className={s.list}>
+    {tracks.map((track) => {
+      const { title, user, attachments } = track.attributes
+      return (
+        <div key={track.id} className={s.item}>
+          <div>
+            <p>Title: {title}</p>
+            <p>Name: {user.name}</p>
+          </div>
+          {attachments.length ? <audio controls src={attachments[0].url} /> : "no file"}
+        </div>
+      )
+    })}
+  </div>
+)
+```
+
+- `LoadingTrigger.tsx`
+
+```tsx filename="LoadingTrigger.tsx"
+import type { RefObject } from "react"
+
+type Props = {
+  observerRef: RefObject<HTMLDivElement | null>
+  isFetchingNextPage: boolean
+}
+
+export const LoadingTrigger = ({ observerRef, isFetchingNextPage }: Props) => (
+  <div ref={observerRef}>
+    {isFetchingNextPage ? <div>Loading more tracks...</div> : <div style={{ height: "20px" }} />}
+  </div>
+)
+```
+
+- `TracksPage.tsx`
+
+```tsx filename="TracksPage.tsx"
+export const TracksPage = () => {
+  const { data, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useFetchTracksInfiniteQuery()
+  const { observerRef } = useInfiniteScroll({ hasNextPage, isFetching, fetchNextPage })
+  const pages = data?.pages.flatMap((page) => page.data) || []
+
+  return (
+    <div>
+      <h1>Tracks Page</h1>
+      <TracksList tracks={pages} />
+      {hasNextPage && <LoadingTrigger isFetchingNextPage={isFetchingNextPage} observerRef={observerRef} />}
+      {!hasNextPage && pages.length > 0 && <p>Nothing more to load</p>}
+    </div>
+  )
+}
+```
+
+**Result:** Decomposition complete, code works 🚀
+
+## Offset Pagination
+
+Offset pagination specifies which item to start from (`pageNumber`) and how many items to fetch (`pageSize`).
+
+```tsx filename="tracksApi.ts" {3, 7, 13}
+export const tracksApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchTracks: build.infiniteQuery<FetchTracksResponse, void, number>({
+      infiniteQueryOptions: {
+        initialPageParam: 1,
+        getNextPageParam: (lastPage, _allPages, lastPageParam) => {
+          return lastPageParam < (lastPage.meta as { pagesCount: number }).pagesCount ? lastPageParam + 1 : undefined
+        },
+      },
+      query: ({ pageParam }) => {
+        return {
+          url: "playlists/tracks",
+          params: { pageNumber: pageParam, pageSize: 10, paginationType: "offset" },
+        }
+      },
+    }),
+  }),
+})
+
+export const { useFetchTracksInfiniteQuery } = tracksApi
+```
