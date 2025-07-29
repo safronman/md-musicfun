@@ -11,7 +11,7 @@ export const metadata = {
 
 const navbar = (
   <Navbar
-    logo={<b>IT-incubator 🚀 (❗ Добавить i18n)</b>}
+    logo={<b>Musicfun: RTK query</b>}
     // ... Your additional navbar options
   />
 )
@@ -34,6 +34,7 @@ export default async function RootLayout({ children }) {
       </Head>
       <body>
         <Layout
+          sidebar={{ defaultMenuCollapseLevel: 1 }}
           navbar={navbar}
           pageMap={await getPageMap()}
           docsRepositoryBase="https://github.com/shuding/nextra/tree/main/docs"
