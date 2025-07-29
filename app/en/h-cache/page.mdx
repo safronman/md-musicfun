@@ -1,0 +1,158 @@
+# 8. Cache
+
+## Caching
+
+Open the Network tab in your browser’s developer tools and inspect the requests when navigating between pages. Requests fire when a page is loaded for the first time, but on subsequent visits the request is not sent because the data is retrieved from the cache.
+
+### keepUnusedDataFor
+
+The time data is retained in the cache defaults to 60 seconds. You can customize this duration using [`keepUnusedDataFor`](https://redux-toolkit.js.org/rtk-query/usage/cache-behavior#reducing-subscription-time-with-keepunuseddatafor) in `baseApi.ts`:
+
+```ts filename="baseApi.ts" {4}
+export const baseApi = createApi({
+  reducerPath: "baseApi",
+  tagTypes: ["Playlist"],
+  keepUnusedDataFor: 5,
+  /*...*/
+})
+```
+
+You can also set `keepUnusedDataFor` on a per-query basis.
+
+### refetchOnFocus
+
+In RTK Query, [`refetchOnFocus`](https://redux-toolkit.js.org/rtk-query/usage/cache-behavior#re-fetching-on-window-focus-with-refetchonfocus) triggers an automatic refetch when the application window or browser tab regains focus.
+
+**How it works:**
+
+- When the user leaves the tab, data is not refetched.
+- When the user returns (the window or tab regains focus), data is automatically refreshed via a request to the server:
+
+```ts filename="baseApi.ts" {4}
+export const baseApi = createApi({
+  reducerPath: "baseApi",
+  tagTypes: ["Playlist"],
+  refetchOnFocus: true,
+  /*...*/
+})
+```
+
+**Result:** Open two tabs with the application. Create a playlist in one tab, then switch to the other. The new playlist loads automatically without a full page reload 🚀
+
+### refetchOnReconnect
+
+The [`refetchOnReconnect`](https://redux-toolkit.js.org/rtk-query/usage/cache-behavior#re-fetching-on-network-reconnection-with-refetchonreconnect) option controls whether a refetch occurs when the application or browser regains an internet connection after being offline.
+
+**When this is useful:**
+
+- Your app runs on an unstable network and you need to ensure data is up-to-date after reconnecting.
+- Your app displays data that may have changed while the user was offline (e.g., social feeds, live streams, or financial data).
+
+```ts filename="baseApi.ts" {4}
+export const baseApi = createApi({
+  reducerPath: "baseApi",
+  tagTypes: ["Playlist"],
+  refetchOnReconnect: true,
+  /*...*/
+})
+```
+
+**Result:** Open two tabs with the application. In one tab, disable the network; in the other, modify a playlist name. Then return to the first tab and re-enable the network. The updated playlist name appears automatically without a reload 🚀
+
+## Polling
+
+[`Polling`](https://redux-toolkit.js.org/rtk-query/usage/polling) lets you automatically repeat requests at specified intervals to keep data fresh.
+
+This is useful for apps displaying dynamic data:
+
+- **Order status tracking (e‑commerce, delivery)**: Status changes infrequently and unpredictably; polling every 5–15 seconds is sufficient.
+- **Cryptocurrency or stock quotes**: Many public REST APIs have rate limits; polling every 5–30 seconds balances freshness with request limits.
+- **Admin dashboards / microservice health checks**: REST endpoints often return summary JSON; real-time updates are not critical, but periodic refreshes are.
+
+**Example:**
+
+When polling is enabled, RTK Query automatically repeats the request at the given interval, updating the client data. RTK Query optimizes this by stopping polling if the component unmounts or the user is inactive:
+
+```tsx filename="PlaylistsPage.tsx"
+const { data, isLoading } = useFetchPlaylistsQuery(
+  {
+    search: debounceSearch,
+    pageNumber: currentPage,
+    pageSize,
+  },
+  {
+    pollingInterval: 3000,
+    skipPollingIfUnfocused: true,
+  },
+)
+```
+
+**Result:** A request for playlists fires every three seconds 🚀
+
+## Accessing Data on Different Pages
+
+For example, we need to fetch user profile information (the `/auth/me` endpoint) on multiple pages.
+
+### RTK slice approach
+
+With plain RTK slices, you would:
+
+1. Fetch in `App.tsx`.
+2. Store the data in `authSlice.ts`.
+3. Use `useSelector` to access it anywhere.
+
+### RTK Query approach
+
+To fetch profile data (`ProfilePage.tsx`) and display the username, while also showing it on the main page:
+
+- `authApi.ts`
+
+```ts filename="src/features/auth/api/authApi.ts"
+export const authApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    getMe: build.query<MeResponse, void>({
+      query: () => `auth/me`,
+    }),
+  }),
+})
+
+export const { useGetMeQuery } = authApi
+```
+
+- `authApi.types.ts`
+
+```ts filename="src/features/auth/api/authApi.types.ts"
+export type MeResponse = {
+  userId: string
+  login: string
+}
+```
+
+- `ProfilePage.tsx`
+
+```tsx filename="ProfilePage.tsx" {2, 4}
+export const ProfilePage = () => {
+  const { data } = useGetMeQuery()
+
+  return <h1>{data?.login} Page</h1>
+}
+```
+
+- `MainPage.tsx`
+
+```tsx filename="MainPage.tsx" {2, 7}
+export const MainPage = () => {
+  const { data } = useGetMeQuery()
+
+  return (
+    <div>
+      <h1>Main Page</h1>
+      <div>Login: {data?.login}</div>
+    </div>
+  )
+}
+```
+
+Note that both `MainPage.tsx` and `ProfilePage.tsx` call the same hook: `useGetMeQuery()`. While it might seem this would trigger multiple requests when navigating, the first request caches the data. Subsequent calls retrieve data from the cache 💪
+
+**Result:** You can access the same data on different pages without extra requests or managing a global slice 🚀
