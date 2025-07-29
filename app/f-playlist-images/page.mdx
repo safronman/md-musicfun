@@ -10,7 +10,7 @@ import { Callout } from "nextra/components"
 
 ### originalCover
 
-Отобразим картинку в плейлисте
+Отобразим обложку в плейлисте
 
 ```tsx filename="PlaylistItem.tsx" {11-12, 16}
 import defaultCover from "@/assets/images/default-playlist-cover.png"
@@ -46,7 +46,7 @@ export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) 
 
 ### useUploadPlaylistCoverMutation
 
-Реализуем логику загрузки изображения плейлиста согласно [документации](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_uploadMainImage)
+Реализуем логику загрузки изображения плейлиста, согласно [документации](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_uploadMainImage)
 
 ```ts filename="playlistsApi.ts"
 export const playlistsApi = baseApi.injectEndpoints({
@@ -108,11 +108,11 @@ export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) 
 }
 ```
 
-**Результат:** обложка успешно загружается 🚀
+**Результат:** обложка успешно загружается и отображается 🚀
 
 ## Удаление обложки
 
-Реализуем логику удаления обложки согласно [документации](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_deleteTrackCover)
+Реализуем логику удаления обложки, согласно [документации](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_deleteTrackCover)
 
 ```ts filename="playlistsApi.ts"
 export const playlistsApi = baseApi.injectEndpoints({
@@ -183,7 +183,7 @@ export const PlaylistCover = ({ images, playlistId }: Props) => {
     if (!file) return
 
     if (file.size > maxSize) {
-      alert(`The file is too large. Max size is ${Math.round(maxSize / 1024)} КБ`)
+      alert(`The file is too large. Max size is ${Math.round(maxSize / 1024)} KB`)
     }
 
     if (!allowedTypes.includes(file.type)) {
@@ -252,9 +252,9 @@ export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) 
 
 ### React toastify
 
-Заменим `alert` на красивую всплывашку
+Заменим `alert` на красивое уведомление
 
-Установите библиотеку для работы с всплывашками [react-toastify](https://www.npmjs.com/package/react-toastify):
+Установите библиотеку для работы с уведомлениями [react-toastify](https://www.npmjs.com/package/react-toastify):
 
 ```bash filename="Terminal"
 pnpm add react-toastify
@@ -279,6 +279,8 @@ export const App = () => {
 }
 ```
 
+- `PlaylistCover.tsx`
+
 ```tsx filename="PlaylistCover.tsx" {8, 12}
 export const PlaylistCover = ({ images, playlistId }: Props) => {
   /*...*/
@@ -287,7 +289,7 @@ export const PlaylistCover = ({ images, playlistId }: Props) => {
     /*...*/
 
     if (file.size > maxSize) {
-      toast(`The file is too large (max. ${Math.round(maxSize / 1024)} КБ)`, { type: "error", theme: "colored" })
+      toast(`The file is too large (max. ${Math.round(maxSize / 1024)} KB)`, { type: "error", theme: "colored" })
     }
 
     if (!allowedTypes.includes(file.type)) {
@@ -301,4 +303,4 @@ export const PlaylistCover = ({ images, playlistId }: Props) => {
 }
 ```
 
-**Результат:** получаем красивую вплывашку 🚀
+**Результат:** получаем красивое всплывающее уведомление 🚀
