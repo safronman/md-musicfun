@@ -1,0 +1,355 @@
+import { Callout } from "nextra/components"
+
+# 2. RTK query
+
+Install [Redux Toolkit](https://redux-toolkit.js.org) and [React Redux](https://react-redux.js.org):
+
+```bash filename="Terminal"
+pnpm add @reduxjs/toolkit react-redux
+```
+
+## Client State vs Server State
+
+| **Client State**                                                  | **Server State**                 |
+| :---------------------------------------------------------------- | :------------------------------- |
+| - Form fields entered by the user                                 | - Results of a database query    |
+| - Selected filters on the page                                    |                                  |
+| - Dark / light theme                                              |                                  |
+| - Local interface data, e.g., current page in pagination          |                                  |
+| - Data stored in local storage (LocalStorage, SessionStorage)     |                                  |
+| - Temporary state in a React component (useState)                 |                                  |
+| - Modal windows                                                   |                                  |
+| - Complex forms (wizard)                                          |                                  |
+|                                                                   |                                  |
+| **Tools for Client State**                                        | **Tools for Server State**       |
+| Redux Toolkit (slice) / useState / useReducer / Zustand / Context | RTK Query / TanStack Query / SWR |
+
+The difference between **Client State** and **Server State** lies in the ways of storing,
+processing and managing information:
+
+| **Characteristic** | **Client State**                                                                                                                                                   | **Server State**                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| **Where stored**   | On the client side (in browser, local application).                                                                                                                | On the server side.                                                                                             |
+| **Examples**       | - form fields; <br/> - selected filters; <br/> - local interface data (e.g., current page); <br/> - `localStorage`, `sessionStorage`; <br/> - `useState` in React. | - database query results; <br/> - authentication state; <br/> - order data; <br/> - chat state via `WebSocket`. |
+| **Advantages**     | - fast access without server requests; <br/> - autonomous offline operation (when available).                                                                      | - centralized data management; <br/> - high level of security; <br/> - easy synchronization between clients.    |
+| **Disadvantages**  | - limited data volume; <br/> - complex synchronization with server; <br/> - vulnerability to modifications.                                                        | - delays due to network requests; <br/> - dependency on connection; <br/> - server load.                        |
+
+## RTK query - theory
+
+<Callout type={"info"} emoji={"🔗"}>
+
+- [RTK Query Quick Start](https://redux-toolkit.js.org/tutorials/rtk-query);
+
+- [RTK Query Overview](https://redux-toolkit.js.org/rtk-query/overview);
+
+- [RTK Query Basics](https://redux.js.org/tutorials/essentials/part-7-rtk-query-basics);
+
+- [RTK Query Advanced Patterns](https://redux.js.org/tutorials/essentials/part-8-rtk-query-advanced)
+
+</Callout>
+
+`RTK Query` -- library for managing `API` requests and application state in `React` applications
+using `Redux Toolkit`. `RTK Query` provides useful functionality: request caching,
+automatic error handling, data loading management and more.
+
+The main idea of `RTK Query` -- automatic generation of `Redux Slice` (set of `Redux actions` and
+reducers) based on `API` endpoints, and then providing hooks for use in `React` components.
+
+**RTK Query features:**
+
+- **automatically caches request responses** and updates them only when necessary;
+- **can automatically normalize data** received from `API` to make it easier to use in the application;
+- **allows configuring various request parameters**: timeout, retries, request type and others;
+- **automatically catches errors** related to requests and provides convenient ways to handle them in the application;
+- **manages data state** in the application and provides ways to get and update them from any part of the application.
+
+`RTK Query` simplifies working with API and state management, allowing developers to focus
+on application business logic rather than implementation details of requests and state management.
+
+## Queries
+
+[Queries](https://redux-toolkit.js.org/rtk-query/usage/queries) are used to get data from the server.
+
+[Basic usage](https://redux-toolkit.js.org/rtk-query/overview#basic-usage)
+
+- `playlistsApi.ts`
+
+```ts filename="playlistsApi.ts"
+// To avoid errors, import should be from `@reduxjs/toolkit/query/react`
+import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react"
+
+// `createApi` - function from `RTK Query`, allowing to create `API` object
+// for interacting with external `API` and managing application state
+export const playlistsApi = createApi({
+  // `reducerPath` - name where state and actions for this `API` will be saved
+  reducerPath: "playlistsApi",
+  // `baseQuery` - configuration for `HTTP client`, which will be used to send requests
+  baseQuery: fetchBaseQuery({
+    baseUrl: import.meta.env.VITE_BASE_URL,
+    headers: {
+      "API-KEY": import.meta.env.VITE_API_KEY,
+    },
+  }),
+  // `endpoints` - method returning object with endpoints for `API`, described
+  // using functions that will be called when calling corresponding `API` methods
+  // (e.g. `get`, `post`, `put`, `patch`, `delete`)
+  endpoints: (build) => ({
+    // Argument typing (<return type, query arguments type (`QueryArg`)>)
+    // `query` by default creates `get` request and method specification is optional
+    fetchPlaylists: build.query<PlaylistsResponse, FetchPlaylistsArgs>({
+      query: () => {
+        return {
+          method: "get",
+          url: `playlists`,
+        }
+      },
+    }),
+  }),
+})
+
+// `createApi` creates `API` object that contains all endpoints as hooks,
+// defined in `endpoints` property
+export const { useFetchPlaylistsQuery } = playlistsApi
+```
+
+<Callout emoji={'🔗'} type={'info'}>
+  - `VITE_BASE_URL` take from [swagger documentation](https://musicfun.it-incubator.app/api)
+
+- `VITE_API_KEY` take from [apihub](https://apihub.it-incubator.io/en) where you need to
+  register first
+
+</Callout>
+
+- `playlistsApi.types.ts`
+
+```ts filename="playlistsApi.types.ts"
+import type { CurrentUserReaction } from "@/common/enums"
+import type { Images, Tag, User } from "@/common/types"
+
+export type PlaylistsResponse = {
+  data: PlaylistData[]
+  meta: PlaylistMeta
+}
+
+export type PlaylistData = {
+  id: string
+  type: "playlists"
+  attributes: PlaylistAttributes
+}
+
+export type PlaylistMeta = {
+  page: number
+  pageSize: number
+  totalCount: number
+  pagesCount: number
+}
+
+export type PlaylistAttributes = {
+  title: string
+  description: string
+  addedAt: string
+  updatedAt: string
+  order: number
+  dislikesCount: number
+  likesCount: number
+  tags: Tag[]
+  images: Images
+  user: User
+  currentUserReaction: CurrentUserReaction
+}
+
+// Arguments
+export type FetchPlaylistsArgs = {
+  pageNumber?: number
+  pageSize?: number
+  search?: string
+  sortBy?: "addedAt" | "likesCount"
+  sortDirection?: "asc" | "desc"
+  tagsIds?: string[]
+  userId?: string
+  trackId?: string
+}
+```
+
+- `common/types/types.ts`
+
+```ts filename="common/types/types.ts"
+export type Tag = {
+  id: string
+  name: string
+}
+
+export type User = {
+  id: string
+  name: string
+}
+
+export type Images = {
+  main: Cover[]
+}
+
+export type Cover = {
+  type: "original" | "medium" | "thumbnail"
+  width: number
+  height: number
+  fileSize: number
+  url: string
+}
+```
+
+- `common/enums/enums.ts`
+
+```ts filename="common/enums/enums.ts"
+export const CurrentUserReaction = {
+  Like: 1,
+  Dislike: -1,
+  None: 0,
+} as const
+
+export type CurrentUserReaction = (typeof CurrentUserReaction)[keyof typeof CurrentUserReaction]
+```
+
+## Store
+
+### 1. Store setup
+
+<Callout type={"info"} emoji={"🔗"}>
+  - [Configure the Store](https://redux-toolkit.js.org/rtk-query/overview#configure-the-store)
+</Callout>
+
+In the `store.ts` file, connect `playlistsApi`, add `middleware` to use additional `RTK Query` functions:
+caching, invalidation and polling, and set `setupListeners` to connect event listeners for focus (`refetchOnFocus`)
+and reconnection (`refetchOnReconnect`) to automatically reload data when returning to the page
+or restoring connection:
+
+```ts filename="store.ts"
+import { configureStore } from "@reduxjs/toolkit"
+import { setupListeners } from "@reduxjs/toolkit/query"
+import { playlistsApi } from "@/features/playlists/api/playlistsApi.ts"
+
+export const store = configureStore({
+  reducer: {
+    [playlistsApi.reducerPath]: playlistsApi.reducer,
+  },
+  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(playlistsApi.middleware),
+})
+
+setupListeners(store.dispatch)
+```
+
+### 2. Provider
+
+To be able to access the `store` in components, you need to wrap the application with [`Provider`](https://redux-toolkit.js.org/tutorials/quick-start#provide-the-redux-store-to-react)
+with `store` passed to it in the `main.tsx` file:
+
+```tsx filename="main.tsx" {3,5}
+createRoot(document.getElementById("root")!).render(
+  <BrowserRouter>
+    <Provider store={store}>
+      <App />
+    </Provider>
+  </BrowserRouter>,
+)
+```
+
+### 3. Redux devtools
+
+- Install [Redux devtools](https://chromewebstore.google.com/detail/redux-devtools/lmhkpmbekcpmknklioeibfkpmmfibljd)
+- Open developer panel and make sure `playlistsApi` is connected:
+
+![devtools](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/46e157ab-81ba-4e23-924d-6455a44b0200_redux-devtools.png)
+
+## Query hook
+
+In the `PlaylistsPage.tsx` component, call the automatically generated hook `useFetchPlaylistsQuery` and render
+the received data
+
+```tsx filename="PlaylistsPage.tsx" {2}
+export const PlaylistsPage = () => {
+  const { data } = useFetchPlaylistsQuery()
+
+  return (
+    <div>
+      <h1>Playlists page</h1>
+      <div>
+        {data?.data.map((playlist) => {
+          return (
+            <div key={playlist.id}>
+              <div>title: {playlist.attributes.title}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+**Result:** Playlists are received from server and rendered 🚀
+
+### Return values from hook
+
+For each change in promise status we get an updated [object with request data](https://redux-toolkit.js.org/rtk-query/usage/queries#frequently-used-query-hook-return-values):
+
+- `data` - data returned by the request;
+- `isLoading` - flag that shows the request is being executed;
+- `isError` - flag that shows the request completed with an error;
+- `error` - error object;
+- etc.
+
+### Query Hook Options
+
+The generated hook can accept [parameters](https://redux-toolkit.js.org/rtk-query/usage/queries#query-hook-options):
+
+- `queryArg` - data for the request;
+- `queryOptions` - object with settings for managing the data retrieval process.
+
+## Displaying playlists
+
+Let's add more information about playlists in the markup and set up basic styles
+
+```tsx filename="PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  const { data } = useFetchPlaylistsQuery()
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <div className={s.items}>
+        {data?.data.map((playlist) => {
+          return (
+            <div className={s.item} key={playlist.id}>
+              <div>title: {playlist.attributes.title}</div>
+              <div>description: {playlist.attributes.description}</div>
+              <div>userName: {playlist.attributes.user.name}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+```css filename="PlaylistsPage.module.css"
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.items {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.item {
+  width: 240px;
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+```
+
+**Result:** Now the playlist list looks much more attractive 🚀
