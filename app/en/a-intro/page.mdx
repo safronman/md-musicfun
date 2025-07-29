@@ -1,0 +1,303 @@
+import { Callout } from "nextra/components"
+
+# 1. Application Setup
+
+To focus on learning `RTK`, let's make basic settings for the application
+
+## Import / Alias Setup
+
+### Theory
+
+In the `tsconfig.json` file there is a `baseUrl` parameter to specify the root directory, relative to
+which `TypeScript` will resolve paths to modules.
+
+**Advantages of using baseUrl:**
+
+- using **absolute paths** instead of relative ones;
+- moving files and folders is simplified thanks to **stable module paths**;
+- **readable and understandable code**, because module paths explicitly indicate their place in the project.
+
+### Practice
+
+Open the `tsconfig.app.json` file and add `baseUrl` and `paths` properties to `compilerOptions`:
+
+```json filename="tsconfig.app.json" {3-6}
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+    /*...*/
+  },
+  "include": ["src"]
+}
+```
+
+Open the `vite.config.ts` file and add the [`resolve` property with `alias` field](https://vite.dev/config/shared-options#resolve-alias) to the configuration:
+
+```ts filename="vite.config.ts" {1, 8-12}
+import path from "path"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react-swc"
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@/": `${path.resolve(__dirname, "src")}/`,
+    },
+  },
+})
+```
+
+To allow importing `path` and the `__dirname` variable, add `node` typing to the project's `devDependencies`:
+
+```bash filename="Terminal"
+pnpm add @types/node -D
+```
+
+## Routing / Application Structure
+
+Let's set up basic routing in the project.
+
+Install the library for working with routing [React Router](https://reactrouter.com):
+
+```bash filename="Terminal"
+pnpm add react-router
+```
+
+<Callout type={"warning"}>
+  In this application we will use [Declarative mode](https://reactrouter.com/start/declarative/installation)
+</Callout>
+
+❗ To be able to work with routing, let's wrap the entire application in `BrowserRouter` in the `main.tsx` file
+
+Let's immediately lay out basic routing and create pages that will be needed during application development and
+add them to routing:
+
+- main page (`MainPage.tsx`),
+- playlists page (`PlaylistsPage.tsx`),
+- tracks page (`TracksPage.tsx`),
+- profile page (`ProfilePage.tsx`),
+- 404 page (`PageNotFound.tsx`)
+
+<Callout type={"warning"}>
+  As folder structure we use recommendations that `RTK` suggests
+
+- [Structure Files as Feature Folders with Single-File
+  Logic](https://redux.js.org/style-guide/#structure-files-as-feature-folders-with-single-file-logic)
+
+- We'll take segments from [FSD
+  segments](https://feature-sliced.github.io/documentation/docs/get-started/overview#segments)
+
+</Callout>
+
+- `MainPage.tsx`
+
+```tsx filename="src/app/MainPage.tsx"
+export const MainPage = () => {
+  return (
+    <div>
+      <h1>Main page</h1>
+    </div>
+  )
+}
+```
+
+- `PlaylistsPage.tsx`
+
+```tsx filename="src/features/playlists/ui/PlaylistsPage/PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  return (
+    <div>
+      <h1>Playlists page</h1>
+    </div>
+  )
+}
+```
+
+- `TracksPage.tsx`
+
+```tsx filename="src/features/tracks/ui/TracksPage/TracksPage.tsx"
+export const TracksPage = () => {
+  return (
+    <div>
+      <h1>Tracks page</h1>
+    </div>
+  )
+}
+```
+
+- `ProfilePage.tsx`
+
+```tsx filename="src/features/auth/ui/ProfilePage/ProfilePage.tsx"
+export const ProfilePage = () => {
+  return (
+    <div>
+      <h1>Profile page</h1>
+    </div>
+  )
+}
+```
+
+- `PageNotFound.tsx`
+
+```tsx filename="src/common/components/PageNotFound/PageNotFound.tsx"
+import s from "./PageNotFound.module.css"
+
+export const PageNotFound = () => {
+  return (
+    <>
+      <h1 className={s.title}>404</h1>
+      <h2 className={s.subtitle}>page not found</h2>
+    </>
+  )
+}
+```
+
+- `PageNotFound.module.css`
+
+```css filename="src/common/components/PageNotFound/PageNotFound.module.css"
+.title {
+  text-align: center;
+  font-size: 250px;
+  margin: 0;
+}
+
+.subtitle {
+  text-align: center;
+  font-size: 50px;
+  margin: 0;
+  text-transform: uppercase;
+}
+```
+
+- `Routing.tsx`
+
+```tsx filename="src/common/routing/Routing.tsx"
+export const Path = {
+  Main: "/",
+  Playlists: "/playlists",
+  Tracks: "/tracks",
+  Profile: "/profile",
+  NotFound: "*",
+} as const
+
+export const Routing = () => (
+  <Routes>
+    <Route path={Path.Main} element={<MainPage />} />
+    <Route path={Path.Playlists} element={<PlaylistsPage />} />
+    <Route path={Path.Tracks} element={<TracksPage />} />
+    <Route path={Path.Profile} element={<ProfilePage />} />
+    <Route path={Path.NotFound} element={<PageNotFound />} />
+  </Routes>
+)
+```
+
+And let's add `Routing.tsx` to `App.tsx`
+
+```tsx
+export const App = () => {
+  return (
+    <>
+      <Routing />
+    </>
+  )
+}
+```
+
+**Result:** When changing the address in the `URL`, the corresponding page will be displayed 🚀
+
+## Header
+
+Let's implement `Header` to navigate through the application
+
+```tsx filename="src/common/components/Header/Header.tsx"
+import { NavLink } from "react-router"
+import { Path } from "@/common/routing/Routing"
+import s from "./Header.module.css"
+
+const navItems = [
+  { to: Path.Main, label: "Main" },
+  { to: Path.Playlists, label: "Playlists" },
+  { to: Path.Tracks, label: "Tracks" },
+  { to: Path.Profile, label: "Profile" },
+]
+
+export const Header = () => {
+  return (
+    <header className={s.container}>
+      <nav>
+        <ul className={s.list}>
+          {navItems.map((item) => (
+            <li key={item.to}>
+              <NavLink to={item.to} className={({ isActive }) => `link ${isActive ? s.activeLink : ""}`}>
+                {item.label}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </header>
+  )
+}
+```
+
+```css filename="src/common/components/Header/Header.module.css"
+.container {
+  border-bottom: 1px solid black;
+  padding-left: 100px;
+}
+
+.list {
+  display: flex;
+  gap: 40px;
+}
+
+.activeLink {
+  font-weight: bold;
+}
+```
+
+Let's add `Header.tsx` to `App.tsx`
+
+```tsx filename="App.tsx"
+export const App = () => {
+  return (
+    <>
+      <Header />
+      <Routing />
+    </>
+  )
+}
+```
+
+**Result:** Now we can conveniently navigate through our application 🚀
+
+## Layout
+
+To prevent the content of all pages from sticking to the left side, let's create a basic wrapper for it.
+
+```css filename="src/app/App.module.css"
+.layout {
+  max-width: 1186px;
+  margin: 0 auto 200px;
+}
+```
+
+```tsx filename="src/app/App.tsx" {5}
+export const App = () => {
+  return (
+    <>
+      <Header />
+      <div className={s.layout}>
+        <Routing />
+      </div>
+    </>
+  )
+}
+```
+
+**Result:** The content of the main pages will be placed in the `layout` 🚀
