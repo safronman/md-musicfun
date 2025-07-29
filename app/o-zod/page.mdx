@@ -428,7 +428,7 @@ export const playlistsApi = baseApi.injectEndpoints({
 ```
 
 <Callout type={"warning"}>
-  Если бекенд ничего не возвращает, значит и валидировать ничего не нужно. Соответственно ендпоинты `deletePlaylist`,
+  Если бекенд ничего не возвращает, значит и валидировать ничего не нужно. Соответственно эндпоинты `deletePlaylist`,
   `updatePlaylist` и `deletePlaylistCover` оставляем как есть.
 </Callout>
 
@@ -436,7 +436,7 @@ export const playlistsApi = baseApi.injectEndpoints({
 
 ### withZodCatch
 
-Обратите внимание, что теперь нам в каждом ендпоинте где мы хотим сделать валидацию придется дублировать
+Обратите внимание, что теперь нам в каждом эндпоинте где мы хотим сделать валидацию придется дублировать
 `catchSchemaFailure`
 
 ```ts filename="playlistsApi.ts" {6-9, 15-18, 26-29}
