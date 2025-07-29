@@ -1,0 +1,617 @@
+import { Callout } from "nextra/components"
+
+# 13. Auth
+
+Currently we are not authorized, but we can perform `CRUD-operations` because temporarily we hardcoded
+`VITE_ACCESS_TOKEN` in `.local.env` and attached it in `prepareHeaders`
+
+```ts filename="baseApi" {10}
+export const baseApi = createApi({
+  /*...*/
+  baseQuery: async (args, api, extraOptions) => {
+    const result = await fetchBaseQuery({
+      baseUrl: import.meta.env.VITE_BASE_URL,
+      headers: {
+        "API-KEY": import.meta.env.VITE_API_KEY,
+      },
+      prepareHeaders: (headers) => {
+        headers.set("Authorization", `Bearer ${import.meta.env.VITE_ACCESS_TOKEN}`)
+        return headers
+      },
+    })(args, api, extraOptions)
+    /*...*/
+  },
+})
+```
+
+<Callout type={"error"} emoji={'❗'}>
+
+Remove `VITE_ACCESS_TOKEN` from `.env.local`
+
+</Callout>
+
+Now it's time to figure out how to implement authentication in `RTK query`
+
+## Login
+
+### OAuth login
+
+According to the [documentation](https://musicfun.it-incubator.app/api#/Authentication) let's implement the `api` layer for `login`.
+
+- `authApi.ts`
+
+```ts filename="authApi.ts"
+export const authApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    login: build.mutation<LoginResponse, LoginArgs>({
+      query: (payload) => ({
+        url: `auth/login`,
+        method: "post",
+        body: { ...payload, accessTokenTTL: "3m" },
+      }),
+    }),
+  }),
+})
+```
+
+- `authApi.types.ts`
+
+```ts filename="authApi.types.ts"
+/*...*/
+
+export type LoginResponse = {
+  refreshToken: string
+  accessToken: string
+}
+
+// Arguments
+export type LoginArgs = {
+  code: string
+  redirectUri: string
+  rememberMe: boolean
+  accessTokenTTL?: string // e.g. "3m"
+}
+```
+
+Let's create a `Login.tsx` component and place this component in `Header.tsx`
+
+- `Login.tsx`
+
+```tsx filename="Login.tsx"
+export const Login = () => {
+  const [login] = useLoginMutation()
+
+  const loginHandler = () => {
+    login({ code: "", redirectUri: "", rememberMe: false })
+  }
+
+  return (
+    <button type={"button"} onClick={loginHandler}>
+      login
+    </button>
+  )
+}
+```
+
+- `Header.tsx`
+
+```tsx filename="Header.tsx" {2, 7-8}
+export const Header = () => {
+  const { data } = useGetMeQuery()
+
+  return (
+    <header className={s.container}>
+      {/*...*/}
+      {data && data.login}
+      {!data && <Login />}
+    </header>
+  )
+}
+```
+
+- `Header.module.css`
+
+```css filename="Header.module.css" {3-6}
+.container {
+  border-bottom: 1px solid black;
+  padding: 0 100px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+```
+
+### OAuth redirect
+
+Now we need to understand where to get `code` and `redirectUri` from.
+
+**Step-by-step plan of what we will do:**
+
+- When the user clicks the `"login"` button, a popup window opens for `OAuth-authorization` to which we pass the
+  [url](https://musicfun.it-incubator.app/api#/Authentication/AuthController_OauthRedirect)
+
+- After authorization, the `OAuth` provider redirects to `/oauth/callback?code=....`
+
+- On this page, the `OAuthCallback` component extracts the `code` and uses `postMessage` to send it to the main application window,
+  then closes the `popup-window`.
+
+<Callout type={"info"} emoji={"🔗"}>
+  [window.postMessage](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage) — is a
+  special mechanism in browsers for secure message exchange between windows, tabs
+  or frames, even if they are from different domains (`cross-origin`). This is one of the few standard ways
+  to transfer data between, for example, a popup window and the main application.
+
+</Callout>
+
+- The main window catches this message, calls the `login mutation` (usually this is a request to the backend, where a token is issued by code).
+
+- After successful login, the user is considered authorized.
+
+#### Implementation
+
+- `.env`
+
+```env filename=".env" {2}
+VITE_BASE_URL=https://musicfun.it-incubator.app/api/1.0
+VITE_DOMAIN_ADDRESS=http://localhost:3000
+VITE_API_KEY=
+```
+
+- `features/auth/ui/OAuthCallback/OAuthCallback.tsx`
+
+```tsx filename="OAuthCallback.tsx"
+// Component triggered after successful OAuth authorization,
+// its purpose is to send the code back to the main app window and close the popup
+export const OAuthCallback = () => {
+  useEffect(() => {
+    // Get the current URL
+    const url = new URL(window.location.href)
+
+    // Extract code from query parameters
+    const code = url.searchParams.get("code")
+
+    if (code && window.opener) {
+      window.opener.postMessage({ code }, "*")
+    }
+
+    window.close()
+  }, [])
+
+  return <p>Logging you in...</p>
+}
+```
+
+- `Routing.tsx`
+
+```tsx filename="Routing.tsx" {3, 10}
+export const Path = {
+  /*...*/
+  OAuthRedirect: "/oauth/callback",
+  NotFound: "*",
+} as const
+
+export const Routing = () => (
+  <Routes>
+    {/*...*/}
+    <Route path={Path.OAuthRedirect} element={<OAuthCallback />} />
+    <Route path={Path.NotFound} element={<PageNotFound />} />
+  </Routes>
+)
+```
+
+- `Login.tsx`
+
+```tsx filename="Login.tsx"
+export const Login = () => {
+  const [login] = useLoginMutation()
+
+  const loginHandler = () => {
+    // Build the redirect URI after authorization
+    const redirectUri = import.meta.env.VITE_DOMAIN_ADDRESS + Path.OAuthRedirect
+
+    // Build the OAuth authorization endpoint URL, adding callbackUrl as a query parameter
+    const url = `${import.meta.env.VITE_BASE_URL}/auth/oauth-redirect?callbackUrl=${redirectUri}`
+
+    // Open a popup window for OAuth authorization
+    window.open(url, "oauthPopup", "width=500, height=600")
+
+    // Handler function to receive messages from the popup window
+    const receiveMessage = async (event: MessageEvent) => {
+      if (event.origin !== import.meta.env.VITE_DOMAIN_ADDRESS) return
+
+      const { code } = event.data
+      if (!code) return
+
+      // Unsubscribe from the event to avoid handling duplicate messages
+      window.removeEventListener("message", receiveMessage)
+      login({ code, redirectUri, rememberMe: false })
+    }
+
+    // Subscribe to messages from the popup window
+    window.addEventListener("message", receiveMessage)
+  }
+
+  return (
+    <button type={"button"} onClick={loginHandler}>
+      login
+    </button>
+  )
+}
+```
+
+**Result:** `login-request` is sent and in response we get 2 jwt tokens: (`refreshToken` and `accessToken`) 🚀
+
+## AccessToken and refreshToken
+
+### Theory
+
+**Why does the backend return `accessToken` and `refreshToken`?**
+
+1. **`accessToken` (access token)**
+
+- Main token for client authorization.
+- Used for requests to protected endpoints (e.g., "get user profile", "create order", etc.).
+- **Short-lived** (usually 5–30 minutes): if stolen, an attacker won't be able to use it for long.
+
+2. **`refreshToken` (refresh token)**
+
+- Stored separately (most often — in httpOnly cookie).
+- Not used directly for API requests!
+- Its purpose is to **refresh the accessToken** when it expires.
+- **Long-lived** (e.g., several days, weeks, or even months).
+
+**Working mechanism (simplified)**
+
+1. User logs in → backend returns **both tokens**.
+2. Client uses `accessToken` for requests.
+3. When `accessToken` expires:
+
+- 3.1. Client makes a refresh request using `refreshToken`.
+- 3.2. Backend validates `refreshToken`, and if everything is ok — issues a new `accessToken` (and may update `refreshToken`).
+- 3.3. User continues working without logging out.
+
+**Why is this needed? (main advantages)**
+
+- **Security.**
+  If `accessToken` is stolen — its action will end quickly, and `refreshToken` is stored as securely as possible
+  (e.g., not accessible from JS).
+- **User convenience.**
+  User doesn't notice that `accessToken` is being refreshed — the session is "eternal" while `refreshToken` is alive
+  (and user hasn't logged out).
+- **Session control.**
+  You can revoke `refreshToken` on the server to log out the user on all devices.
+
+### Practice
+
+- `common/constants/constants.ts`
+
+```tsx filename="constants.tsx"
+export const AUTH_KEYS = {
+  accessToken: "musicfun-access-token",
+  refreshToken: "musicfun-refresh-token",
+} as const
+```
+
+- `baseApi.ts`
+
+```tsx filename="baseApi.ts" /"Auth"/1 {11-14}
+export const baseApi = createApi({
+  reducerPath: "baseApi",
+  tagTypes: ["Playlist", "Auth"],
+  baseQuery: async (args, api, extraOptions) => {
+    const result = await fetchBaseQuery({
+      baseUrl: import.meta.env.VITE_BASE_URL,
+      headers: {
+        "API-KEY": import.meta.env.VITE_API_KEY,
+      },
+      prepareHeaders: (headers) => {
+        const accessToken = localStorage.getItem(AUTH_KEYS.accessToken)
+        if (accessToken) {
+          headers.set("Authorization", `Bearer ${accessToken}`)
+        }
+        return headers
+      },
+    })(args, api, extraOptions)
+
+    if (result.error) {
+      handleErrors(result.error)
+    }
+
+    return result
+  },
+  endpoints: () => ({}),
+})
+```
+
+- `authApi.ts`
+
+```ts filename="authApi.ts" {10-16}
+export const authApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    login: build.mutation<LoginResponse, LoginArgs>({
+      query: (payload) => ({
+        url: `auth/login`,
+        method: "post",
+        body: { ...payload, accessTokenTTL: "3m" },
+      }),
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        const { data } = await queryFulfilled
+        localStorage.setItem(AUTH_KEYS.accessToken, data.accessToken)
+        localStorage.setItem(AUTH_KEYS.refreshToken, data.refreshToken)
+        // Invalidate after saving tokens
+        dispatch(authApi.util.invalidateTags(["Auth"]))
+      },
+    }),
+  }),
+})
+```
+
+**Result:**
+
+- save `refreshToken` and `accessToken` in `localstorage` 🚀
+- attach `accessToken` to every request 🚀
+- after login, invalidate cache to make `me-request` 🚀
+
+## Logout
+
+Let's implement [logout](https://musicfun.it-incubator.app/api#/Authentication/AuthController_logout)
+
+<Callout type={'info'} emoji={'🔗'}>
+  - [resetApiState](https://redux-toolkit.js.org/rtk-query/api/created-api/api-slice-utils#resetapistate)
+  resets the state of the entire `API slice`, including request cache
+
+</Callout>
+
+- `baseApi.ts`
+
+```ts filename="baseApi.ts"
+export const authApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+
+    logout: build.mutation<void, void>({
+      query: () => {
+        const refreshToken = localStorage.getItem(AUTH_KEYS.refreshToken)
+        return { url: "auth/logout", method: "post", body: { refreshToken } }
+      },
+      async onQueryStarted(_args, { queryFulfilled, dispatch }) {
+        await queryFulfilled
+        localStorage.removeItem(AUTH_KEYS.accessToken)
+        localStorage.removeItem(AUTH_KEYS.refreshToken)
+        dispatch(baseApi.util.resetApiState())
+      },
+    }),
+  }),
+})
+```
+
+- `Header.tsx`
+
+```tsx filename="Header.tsx" {3, 5, 10-15}
+export const Header = () => {
+  const { data } = useGetMeQuery()
+  const [logout] = useLogoutMutation()
+
+  const logoutHandler = () => logout()
+
+  return (
+    <header className={s.container}>
+      {/*...*/}
+      {data && (
+        <div className={s.loginContainer}>
+          <p>{data.login}</p>
+          <button onClick={logoutHandler}>logout</button>
+        </div>
+      )}
+      {!data && <Login />}
+    </header>
+  )
+}
+```
+
+- `Header.module.css`
+
+```css filename="Header.module.css"
+/*...*/
+.loginContainer {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+```
+
+**Result:** you can log out of the application 🚀
+
+## Re-authorization
+
+Now let's understand why we need `refreshToken` and how to work with it
+
+To see the problem, when logging in, specify `accessTokenTTL` equal to, for example, `10s`. Log in and try to
+update a playlist, everything should work. Then wait 10 seconds and try to update again, an error should occur
+because the `accessToken` lifetime has expired and it has become invalid.
+
+To solve this problem, let's implement [/auth/refresh](https://musicfun.it-incubator.app/api#/Authentication/AuthController_refresh)
+
+<Callout type={"info"} emoji={'🔗'}>
+
+- [Automatic re-authorization by extending
+  fetchBaseQuery](https://redux-toolkit.js.org/rtk-query/usage/customizing-queries#automatic-re-authorization-by-extending-fetchbasequery)
+
+</Callout>
+
+We will use the variant with [async-mutex](https://safronman.gitbook.io/jwt-formdata-optimistic-update) to prevent multiple calls to `'/refreshToken'`
+
+Let's install the [async-mutex](https://www.npmjs.com/package/async-mutex) library
+
+```bash filename="Terminal"
+pnpm add async-mutex
+```
+
+<Callout type={'info'}>
+  The `async-mutex` library is needed to manage access to shared data in asynchronous code. It helps
+  avoid situations where multiple asynchronous operations simultaneously try to modify the same data
+  (e.g., a variable, object, or array), which can lead to errors or incorrect behavior.
+
+**In simple terms:**
+`async-mutex` allows you to "lock" a resource for one operation so that others wait their turn. It's like a queue
+at a store — while one customer is at the checkout, the rest wait so there's no confusion.
+
+</Callout>
+
+- `baseQuery.ts`
+
+```ts filename="baseQuery.ts"
+import { AUTH_KEYS } from "@/common/constants"
+import { fetchBaseQuery } from "@reduxjs/toolkit/query/react"
+
+export const baseQuery = fetchBaseQuery({
+  baseUrl: import.meta.env.VITE_BASE_URL,
+  headers: {
+    "API-KEY": import.meta.env.VITE_API_KEY,
+  },
+  prepareHeaders: (headers) => {
+    const accessToken = localStorage.getItem(AUTH_KEYS.accessToken)
+    if (accessToken) {
+      headers.set("Authorization", `Bearer ${accessToken}`)
+    }
+    return headers
+  },
+})
+```
+
+- `baseApi.ts`
+
+```ts filename="baseApi.ts" {8}
+import { baseQueryWithReauth } from "@/app/api/baseQueryWithReauth.ts"
+import { createApi } from "@reduxjs/toolkit/query/react"
+
+export const baseApi = createApi({
+  reducerPath: "baseApi",
+  tagTypes: ["Playlist", "Auth"],
+  endpoints: () => ({}),
+  baseQuery: baseQueryWithReauth,
+})
+```
+
+- `baseQueryWithReauth.ts`
+
+```ts filename="baseQueryWithReauth.ts"
+import { baseApi } from "@/app/api/baseApi.ts"
+import { baseQuery } from "@/app/api/baseQuery.ts"
+import { AUTH_KEYS } from "@/common/constants"
+import { handleErrors, isTokens } from "@/common/utils"
+import type { BaseQueryFn, FetchArgs, FetchBaseQueryError } from "@reduxjs/toolkit/query/react"
+import { Mutex } from "async-mutex"
+
+// Create a new mutex to manage concurrent refresh token requests
+const mutex = new Mutex()
+
+export const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> = async (
+  args,
+  api,
+  extraOptions,
+) => {
+  // Wait for any ongoing refresh token operation to finish (if mutex is locked)
+  await mutex.waitForUnlock()
+
+  // Perform the original API request
+  let result = await baseQuery(args, api, extraOptions)
+
+  // If the request failed with a 401 Unauthorized error
+  if (result.error && result.error.status === 401) {
+    // Check if mutex is not already locked (i.e., no other refresh in progress)
+    if (!mutex.isLocked()) {
+      // Lock the mutex so only one refresh request is processed at a time
+      const release = await mutex.acquire()
+      try {
+        const refreshToken = localStorage.getItem(AUTH_KEYS.refreshToken)
+
+        const refreshResult = await baseQuery(
+          { url: "/auth/refresh", method: "post", body: { refreshToken } },
+          api,
+          extraOptions,
+        )
+
+        if (refreshResult.data && isTokens(refreshResult.data)) {
+          localStorage.setItem(AUTH_KEYS.accessToken, refreshResult.data.accessToken)
+          localStorage.setItem(AUTH_KEYS.refreshToken, refreshResult.data.refreshToken)
+          // Retry the original request with the new access token
+          result = await baseQuery(args, api, extraOptions)
+        } else {
+          // If refresh failed, trigger logout
+          // @ts-expect-error
+          api.dispatch(baseApi.endpoints.logout.initiate())
+        }
+      } finally {
+        // Always release the mutex after refreshing is done
+        release()
+      }
+    } else {
+      // If a refresh is already in progress, wait for it to finish
+      await mutex.waitForUnlock()
+      // Retry the original request after tokens have been refreshed
+      result = await baseQuery(args, api, extraOptions)
+    }
+  }
+
+  // Handle all errors except 401 Unauthorized (which are handled above)
+  if (result.error && result.error.status !== 401) {
+    handleErrors(result.error)
+  }
+
+  return result
+}
+```
+
+<Callout type={"warning"}>
+  Remove case `401` from `handleErrors.ts`, because we handle authorization errors differently
+</Callout>
+
+- `common/utils/isTokens.ts`
+
+```ts filename="isTokens.ts"
+export const isTokens = (data: unknown): data is { accessToken: string; refreshToken: string } => {
+  return typeof data === "object" && data !== null && "accessToken" in data && "refreshToken" in data
+}
+```
+
+**Result:** authorization implemented 🚀
+
+### Refresh errors
+
+If we log out we will see an error because a `refresh` request goes with an invalid `refresh-token`.
+
+```bash filename="console"
+{
+  status: "400",
+  code: 5,
+  title: "Validation failed",
+  detail: "refreshToken must be a string; Received value: null",
+  source: {
+    pointer: "/data/attributes/refreshToken",
+  },
+  meta: {
+    timestamp: "2025-07-22T13:12:47.617Z",
+    path: "/api/1.0/auth/refresh",
+  },
+}
+```
+
+But we can't avoid showing errors with status 400. We don't need this only when there's a token error. Therefore,
+let's slightly improve the `400 case`
+
+```ts filename="handleErrors"
+case 400:
+  if (isErrorWithDetailArray(error.data)) {
+    const errorMessage = error.data.errors[0].detail
+    if (errorMessage.includes("refreshToken")) return
+    errorToast(trimToMaxLength(errorMessage))
+  } else {
+    errorToast(JSON.stringify(error.data))
+  }
+break
+```
+
+**Result:** Refresh errors are not displayed in the UI 🚀
