@@ -1,0 +1,560 @@
+import { Callout } from "nextra/components"
+
+# 3. Mutation
+
+[Mutations](https://redux-toolkit.js.org/rtk-query/usage/mutations) are used for updating data on the server and in the cache on the client. When a mutation is executed successfully,
+you can invalidate data in the cache and trigger their refetch.
+
+## Creating a playlist
+
+### Api
+
+Let's implement playlist creation logic according to [documentation](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_createPlaylist).
+
+When changing data we will use the `mutation` method on `build`:
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = createApi({
+  /*...*/
+  endpoints: (build) => ({
+    /*...*/
+    createPlaylist: build.mutation<{ data: PlaylistData }, CreatePlaylistArgs>({
+      query: (body) => ({
+        url: "playlists",
+        method: "post",
+        body,
+      }),
+    }),
+  }),
+})
+
+export const { useFetchPlaylistsQuery, useCreatePlaylistMutation } = playlistsApi
+```
+
+```ts filename="playlistsApi.types.ts"
+/*...*/
+// Arguments
+export type CreatePlaylistArgs = {
+  title: string
+  description: string
+}
+```
+
+### UI
+
+To create a new playlist, we need to create a form where we will enter data and then pass it
+to the server.
+To create the form let's install the [react-hook-form](https://react-hook-form.com/) library
+
+```bash filename="Terminal"
+pnpm add react-hook-form
+```
+
+Let's create a form and output data to the console
+
+```tsx filename="src/features/playlists/PlaylistsPage/CreatePlaylistForm/CreatePlaylistForm.tsx"
+export const CreatePlaylistForm = () => {
+  const { register, handleSubmit } = useForm<CreatePlaylistArgs>()
+
+  const onSubmit: SubmitHandler<CreatePlaylistArgs> = (data) => {
+    console.log(data)
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <h2>Create new playlist</h2>
+      <div>
+        <input {...register("title")} placeholder={"title"} />
+      </div>
+      <div>
+        <input {...register("description")} placeholder={"description"} />
+      </div>
+      <button>create playlist</button>
+    </form>
+  )
+}
+```
+
+```tsx filename="PlaylistsPage.tsx" {7}
+export const PlaylistsPage = () => {
+  const { data } = useFetchPlaylistsQuery()
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+![create-playlist-form-console](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/5c0eaed0-8d0a-4675-aaff-5e42fa99fde0_create-playlist-form-console.png)
+
+**Result:** Let's enter data into the form and make sure the data is collected and output to the console 🚀
+
+### useMutation
+
+The generated [useMutation](https://redux-toolkit.js.org/rtk-query/api/created-api/hooks#usemutation) hook returns an array:
+
+```tsx
+const [createPlaylist, result] = useCreatePlaylistMutation()
+```
+
+1. First parameter - function to initiate the request;
+2. Second parameter - object with request data.
+
+```tsx filename="CreatePlaylistForm.tsx" {4,7}
+export const CreatePlaylistForm = () => {
+  const { register, handleSubmit } = useForm<CreatePlaylistArgs>()
+
+  const [createPlaylist] = useCreatePlaylistMutation()
+
+  const onSubmit: SubmitHandler<CreatePlaylistArgs> = (data) => {
+    createPlaylist(data)
+  }
+
+  /*...*/
+}
+```
+
+Now let's make a request and look at the result
+
+![401-error](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/6c0f0cee-49f3-42d5-a183-3523ce725b49_401-error.png)
+
+This error means that only an authorized user can create playlists. For the backend to understand who is accessing it,
+you need to pass the `accessToken` obtained during login in the `Header`.
+
+<Callout type={'warning'}>
+
+The authorization topic is quite complex and we don't want to start with it now. Therefore we will
+[log in using Swagger](https://musicfun.it-incubator.app/api#/Authentication/AuthController_login), get the
+`accessToken` and attach it to the request.
+
+❗We'll cover authorization in `RTK query` later.
+
+</Callout>
+
+Let's put the obtained `accessToken` in `.env.local`
+
+```env filename=".env.local" {3}
+VITE_BASE_URL=https://musicfun.it-incubator.app/api/1.0
+VITE_API_KEY=xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxx
+VITE_ACCESS_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxIiwibG9naW4iOiJzYWZyb25tYW4iLCJpYXQiOjE3NTIyMzk2OTIsImV4cCI6MTc1MjMyNjA5Mn0.bfQs5OgJKwKBQj8uk1uOEW1I7eIyWKtQTOXMvB0yxoo
+```
+
+The `accessToken` needs to be attached to all requests, so let's improve `playlistsApi.ts`
+
+```tsx filename="playlistsApi.ts" {8-11}
+export const playlistsApi = createApi({
+  reducerPath: "playlistsApi",
+  baseQuery: fetchBaseQuery({
+    baseUrl: import.meta.env.VITE_BASE_URL,
+    headers: {
+      "API-KEY": import.meta.env.VITE_API_KEY,
+    },
+    prepareHeaders: (headers) => {
+      headers.set("Authorization", `Bearer ${import.meta.env.VITE_ACCESS_TOKEN}`)
+      return headers
+    },
+  }),
+  /*...*/
+})
+```
+
+Let's try to create a playlist again. We open the developer panel and see that the request passes successfully
+
+![create-playlist-success](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/50be3f04-1277-4989-9724-211d6704010e_create-playlust-success.png)
+
+The `accessToken` is attached in `Headers`
+
+![accessToken](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/98cd9732-7f5e-4b5e-95c6-8a07c4e22def_accessToken.png)
+
+**Result:** if you make a request to add a playlist and refresh the page, you can verify the correctness
+of the written logic 🚀
+
+❗After successfully creating a playlist, let's clear the input form
+
+```tsx filename="CreatePlaylistForm.tsx" {2, 8}
+export const CreatePlaylistForm = () => {
+  const { register, handleSubmit, reset } = useForm<CreatePlaylistArgs>()
+
+  const [createPlaylist] = useCreatePlaylistMutation()
+
+  const onSubmit: SubmitHandler<CreatePlaylistArgs> = (data) => {
+    createPlaylist(data).then(() => {
+      reset()
+    })
+  }
+
+  /*...*/
+}
+```
+
+## Deleting a playlist
+
+Let's implement playlist deletion logic according to [documentation](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_deletePlaylist).
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = createApi({
+  /*...*/
+  endpoints: (build) => ({
+    /*...*/
+    deletePlaylist: build.mutation<void, string>({
+      query: (playlistId) => ({
+        url: `playlists/${playlistId}`,
+        method: "delete",
+      }),
+    }),
+  }),
+})
+```
+
+In the `PlaylistsPage.tsx` component, use the generated `useDeletePlaylistMutation` hook:
+
+```tsx filename="PlaylistsPage.tsx" {3, 5-9, 22}
+export const PlaylistsPage = () => {
+  const { data } = useFetchPlaylistsQuery()
+  const [deletePlaylist] = useDeletePlaylistMutation()
+
+  const deletePlaylistHandler = (playlistId: string) => {
+    if (confirm("Are you sure you want to delete the playlist?")) {
+      deletePlaylist(playlistId)
+    }
+  }
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <div className={s.items}>
+        {data?.data.map((playlist) => {
+          return (
+            <div className={s.item} key={playlist.id}>
+              <div>title: {playlist.attributes.title}</div>
+              <div>description: {playlist.attributes.description}</div>
+              <div>userName: {playlist.attributes.user.name}</div>
+              <button onClick={() => deletePlaylistHandler(playlist.id)}>delete</button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+**Result:** if you make a request to delete a playlist and refresh the page, you can verify the correctness
+of the written logic 🚀
+
+## Updating a playlist
+
+### Step 1
+
+Let's implement playlist update logic according to [documentation](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_updatePlaylist).
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = createApi({
+  /*...*/
+  endpoints: (build) => ({
+    /*...*/
+    updatePlaylist: build.mutation<void, { playlistId: string; body: UpdatePlaylistArgs }>({
+      query: ({ playlistId, body }) => ({
+        url: `playlists/${playlistId}`,
+        method: "put",
+        body,
+      }),
+    }),
+  }),
+})
+```
+
+```ts filename="playlistsApi.types.ts" {8-12}
+/*...*/
+// Arguments
+export type CreatePlaylistArgs = {
+  title: string
+  description: string
+}
+
+export type UpdatePlaylistArgs = {
+  title: string
+  description: string
+  tagIds: string[]
+}
+```
+
+In the `PlaylistsPage` component:
+
+- let's add a button to edit the playlist
+- let's use the generated `updatePlaylist` hook
+
+<Callout type={"warning"}>In `body` we will temporarily pass `hardcode` data</Callout>
+
+```tsx filename="PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  /*...*/
+
+  const updatePlaylistHandler = (playlistId: string) => {
+    updatePlaylist({
+      playlistId,
+      body: {
+        title: "1",
+        description: "2",
+        tagIds: [],
+      },
+    })
+  }
+
+  return (
+    <div className={s.container}>
+      {/*...*/}
+      <div className={s.items}>
+        {data?.data.map((playlist) => {
+          return (
+            <div className={s.item} key={playlist.id}>
+              {/*...*/}
+              <button onClick={() => deletePlaylistHandler(playlist.id)}>delete</button>
+              <button onClick={() => updatePlaylistHandler(playlist.id)}>update</button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+**Result:** if you make a request to update a playlist and refresh the page, you can verify the
+correctness of the written logic 🚀
+
+### Step 2
+
+1. When clicking the `update` button we need to show a form where we will enter data. But we want to
+   show forms only for one playlist, not for all. Therefore let's add
+   `const [playlistId, setPlaylistId] = useState<string | null>(null)`
+
+2. When playlists are mapped we check if there is a playlist that needs to be edited
+   ` const isEditing = playlistId === playlist.id` and if such is found, then we render the edit form
+
+3. When clicking the `update` button (`editPlaylistHandler`) using `reset` we set values for the playlist
+
+4. When clicking the `save` button (`onSubmit`) we send the entered data to the server. If the playlist is successfully updated,
+   we need to wait for the request to complete and close the edit form
+
+5. When clicking the `cancel` button we close the edit form
+
+```tsx filename="PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  // 1
+  const [playlistId, setPlaylistId] = useState<string | null>(null)
+  const { register, handleSubmit, reset } = useForm<UpdatePlaylistArgs>()
+
+  const { data } = useFetchPlaylistsQuery()
+  const [deletePlaylist] = useDeletePlaylistMutation()
+  const [updatePlaylist] = useUpdatePlaylistMutation()
+
+  const deletePlaylistHandler = (playlistId: string) => {
+    if (confirm("Are you sure you want to delete the playlist?")) {
+      deletePlaylist(playlistId)
+    }
+  }
+
+  // 3, 5
+  const editPlaylistHandler = (playlist: PlaylistData | null) => {
+    if (playlist) {
+      setPlaylistId(playlist.id)
+      reset({
+        title: playlist.attributes.title,
+        description: playlist.attributes.description,
+        tagIds: playlist.attributes.tags.map((t) => t.id),
+      })
+    } else {
+      setPlaylistId(null)
+    }
+  }
+
+  // 4
+  const onSubmit: SubmitHandler<UpdatePlaylistArgs> = (data) => {
+    if (!playlistId) return
+    updatePlaylist({ playlistId, body: data }).then(() => {
+      setPlaylistId(null)
+    })
+  }
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <div className={s.items}>
+        {data?.data.map((playlist) => {
+          // 2
+          const isEditing = playlistId === playlist.id
+
+          return (
+            <div className={s.item} key={playlist.id}>
+              {isEditing ? (
+                <form onSubmit={handleSubmit(onSubmit)}>
+                  <h2>Edit playlist</h2>
+                  <div>
+                    <input {...register("title")} placeholder={"title"} />
+                  </div>
+                  <div>
+                    <input {...register("description")} placeholder={"description"} />
+                  </div>
+                  <button type={"submit"}>save</button>
+                  <button type={"button"} onClick={() => editPlaylistHandler(null)}>
+                    cancel
+                  </button>
+                </form>
+              ) : (
+                <div>
+                  <div>title: {playlist.attributes.title}</div>
+                  <div>description: {playlist.attributes.description}</div>
+                  <div>userName: {playlist.attributes.user.name}</div>
+                  <button onClick={() => deletePlaylistHandler(playlist.id)}>delete</button>
+                  <button onClick={() => editPlaylistHandler(playlist)}>update</button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+**Result:** we have successfully implemented `CRUD` operations with playlists 🚀
+
+## PlaylistsPage decomposition
+
+Before moving forward, let's refactor the code a bit and create separate components:
+
+- for playlist (`PlaylistItem.tsx`)
+
+```tsx filename="PlaylistItem.tsx"
+type Props = {
+  playlist: PlaylistData
+  deletePlaylist: (playlistId: string) => void
+  editPlaylist: (playlist: PlaylistData) => void
+}
+
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  return (
+    <div>
+      <div>title: {playlist.attributes.title}</div>
+      <div>description: {playlist.attributes.description}</div>
+      <div>userName: {playlist.attributes.user.name}</div>
+      <button onClick={() => deletePlaylist(playlist.id)}>delete</button>
+      <button onClick={() => editPlaylist(playlist)}>update</button>
+    </div>
+  )
+}
+```
+
+- for edit form (`EditPlaylistForm.tsx`)
+
+```tsx filename="EditPlaylistForm.tsx"
+type Props = {
+  playlistId: string
+  register: UseFormRegister<UpdatePlaylistArgs>
+  handleSubmit: UseFormHandleSubmit<UpdatePlaylistArgs>
+  editPlaylist: (playlist: null) => void
+  setPlaylistId: (playlistId: null) => void
+}
+
+export const EditPlaylistForm = ({ playlistId, handleSubmit, register, editPlaylist, setPlaylistId }: Props) => {
+  const [updatePlaylist] = useUpdatePlaylistMutation()
+
+  const onSubmit: SubmitHandler<UpdatePlaylistArgs> = (data) => {
+    if (!playlistId) return
+    updatePlaylist({ playlistId, body: data }).then(() => {
+      setPlaylistId(null)
+    })
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <h2>Edit playlist</h2>
+      <div>
+        <input {...register("title")} placeholder={"title"} />
+      </div>
+      <div>
+        <input {...register("description")} placeholder={"description"} />
+      </div>
+      <button type={"submit"}>save</button>
+      <button type={"button"} onClick={() => editPlaylist(null)}>
+        cancel
+      </button>
+    </form>
+  )
+}
+```
+
+- code after refactoring (`PlaylistsPage.tsx`)
+
+```tsx filename="PlaylistsPage.tsx"
+export const PlaylistsPage = () => {
+  const [playlistId, setPlaylistId] = useState<string | null>(null)
+
+  const { register, handleSubmit, reset } = useForm<UpdatePlaylistArgs>()
+
+  const { data } = useFetchPlaylistsQuery()
+
+  const [deletePlaylist] = useDeletePlaylistMutation()
+
+  const deletePlaylistHandler = (playlistId: string) => {
+    if (confirm("Are you sure you want to delete the playlist?")) {
+      deletePlaylist(playlistId)
+    }
+  }
+
+  const editPlaylistHandler = (playlist: PlaylistData | null) => {
+    if (playlist) {
+      setPlaylistId(playlist.id)
+      reset({
+        title: playlist.attributes.title,
+        description: playlist.attributes.description,
+        tagIds: playlist.attributes.tags.map((t) => t.id),
+      })
+    } else {
+      setPlaylistId(null)
+    }
+  }
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <div className={s.items}>
+        {data?.data.map((playlist) => {
+          const isEditing = playlistId === playlist.id
+
+          return (
+            <div className={s.item} key={playlist.id}>
+              {isEditing ? (
+                <EditPlaylistForm
+                  playlistId={playlistId}
+                  handleSubmit={handleSubmit}
+                  register={register}
+                  editPlaylist={editPlaylistHandler}
+                  setPlaylistId={setPlaylistId}
+                />
+              ) : (
+                <PlaylistItem
+                  playlist={playlist}
+                  deletePlaylist={deletePlaylistHandler}
+                  editPlaylist={editPlaylistHandler}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+**Result:** refactoring is complete. The code works 🚀
