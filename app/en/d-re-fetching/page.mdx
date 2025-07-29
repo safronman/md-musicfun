@@ -1,0 +1,54 @@
+import { Callout } from "nextra/components"
+
+# 4. Data Updating
+
+## Automated Re-fetching
+
+After data mutations, changes are not visible in the UI without reloading the page.
+
+Data refetching in RTK Query is implemented using the **tag system**:
+
+<Callout type={'info'}>
+  A “tag” is a string or object that allows you to name specific data types and invalidate parts of the cache. When a
+  cache tag is invalidated, RTK Query automatically refetches data from endpoints associated with that tag:
+
+- [Automated Re-fetching](https://redux-toolkit.js.org/rtk-query/usage/automated-refetching);
+- [Advanced Mutations with
+  Revalidation](https://redux-toolkit.js.org/rtk-query/usage/mutations#advanced-mutations-with-revalidation).
+
+</Callout>
+
+To use tags, add:
+
+1. A `tagTypes` property in your API slice declaring an array of tag names for data types, such as `"Playlist"`;
+2. A `providesTags` array in a query endpoint listing the tags that describe the data returned by that request;
+3. An `invalidatesTags` array in mutation endpoints listing the tags that should be invalidated when those mutations run:
+
+```ts filename="playlistsApi.ts" {3, 7, 11, 15, 19}
+export const playlistsApi = createApi({
+  /*...*/
+  tagTypes: ["Playlist"],
+  endpoints: (build) => ({
+    fetchPlaylists: build.query<PlaylistsResponse, void>({
+      query: () => ({ url: `playlists` }),
+      providesTags: ["Playlist"],
+    }),
+    createPlaylist: build.mutation<{ data: PlaylistData }, CreatePlaylistArgs>({
+      query: (body) => ({ url: "playlists", method: "post", body }),
+      invalidatesTags: ["Playlist"],
+    }),
+    deletePlaylist: build.mutation<void, string>({
+      query: (playlistId) => ({ url: `playlists/${playlistId}`, method: "delete" }),
+      invalidatesTags: ["Playlist"],
+    }),
+    updatePlaylist: build.mutation<void, { playlistId: string; body: UpdatePlaylistArgs }>({
+      query: ({ playlistId, body }) => ({ url: `playlists/${playlistId}`, method: "put", body }),
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+Open the Network tab in your browser’s developer tools and test performing CRUD operations on playlists. First, a request for the mutation is sent, followed by a request to fetch the updated playlists.
+
+**Result:** After mutations, the user sees updated information without reloading the page 🚀
