@@ -1,0 +1,63 @@
+# 5. Code Splitting
+
+RTK Query reduces the initial bundle size by allowing endpoints to be added after setting up the base service definition. [Code Splitting](https://redux-toolkit.js.org/rtk-query/usage/code-splitting) in RTK Query makes the application more optimized, flexible, and maintainable, especially when working with many APIs in scalable projects.
+
+**Benefits of Code Splitting:**
+
+1. **Reduced initial JavaScript payload**: Only the necessary parts of the application are loaded, decreasing the bundle size and shortening initial load times;
+2. **Improved performance**: The browser requires less time to process the loaded code;
+3. **Network resource savings**: API logic is not loaded for pages where it is not used;
+4. **Increased development flexibility**: You can add and modify API slices without affecting the overall application structure.
+
+The `injectEndpoints` method accepts a collection of endpoints and an optional `overrideExisting` parameter. Calling `injectEndpoints` will add endpoints to the original API and return the same API with correct types for all endpoints.
+
+1. Create a file `app/api/baseApi.ts` with a single empty central API slice definition—`baseApi`:
+
+```ts filename="src/app/baseApi.ts"
+import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react"
+
+export const baseApi = createApi({
+  reducerPath: "baseApi",
+  tagTypes: ["Playlist"],
+  baseQuery: fetchBaseQuery({
+    baseUrl: import.meta.env.VITE_BASE_URL,
+    headers: {
+      "API-KEY": import.meta.env.VITE_API_KEY,
+    },
+    prepareHeaders: (headers) => {
+      headers.set("Authorization", `Bearer ${import.meta.env.VITE_ACCESS_TOKEN}`)
+      return headers
+    },
+  }),
+  endpoints: () => ({}),
+})
+```
+
+2. Inject the `playlistsApi` endpoints into `baseApi` using `injectEndpoints`:
+
+```ts filename="playlistsApi.ts" /baseApi.injectEndpoints/
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+  }),
+})
+```
+
+3. Hook up `baseApi` to the store:
+
+```ts filename="store.ts" {7, 9}
+import { configureStore } from "@reduxjs/toolkit"
+import { setupListeners } from "@reduxjs/toolkit/query"
+import { baseApi } from "../api/baseApi.ts"
+
+export const store = configureStore({
+  reducer: {
+    [baseApi.reducerPath]: baseApi.reducer,
+  },
+  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(baseApi.middleware),
+})
+
+setupListeners(store.dispatch)
+```
+
+**Result:** Everything works with the advantages provided by Code Splitting 🚀
