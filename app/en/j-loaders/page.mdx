@@ -1,0 +1,308 @@
+import { Callout } from "nextra/components"
+
+# 10. Loaders
+
+## Query Loading State
+
+### isLoading vs isFetching
+
+Automatically generated `RTK Query` hooks provide derived boolean flags for the [Query Loading State](https://redux-toolkit.js.org/rtk-query/usage/queries#query-loading-state), which reflect the current status of a given query:
+
+1. **`isLoading`** is `true` when the query is running for the **first time** for that hook and the data is **not yet available**. It is used to display a `Skeleton` or an empty placeholder while data is loading for the first time.
+
+2. **`isFetching`** is `true` when the query is running for the specified endpoint and request parameters, but **not necessarily the first time**. It is used to show existing data with an additional visual indicator of data updating (`LinearProgress`).
+
+Let's log `isLoading` and `isFetching` in the `PlaylistsPage.tsx` component:
+
+```tsx filename="PlaylistsPage.tsx" /isLoading/ /isFetching/
+export const PlaylistsPage = () => {
+  /*...*/
+
+  const { data, isLoading, isFetching } = useFetchPlaylistsQuery({
+    search: debounceSearch,
+    pageNumber: currentPage,
+    pageSize,
+  })
+
+  console.log({ isLoading, isFetching })
+
+  /*...*/
+}
+```
+
+On the first load, `isFetching` and `isLoading` behave the same:
+
+```bash filename="console"
+{isLoading: true, isFetching: true}  // request is in progress
+{isLoading: false, isFetching: false}  // request has completed
+```
+
+When navigating to another page (the `endpoint` is the same, only the `page` query parameter changes), `isFetching` reacts to data loading, but `isLoading` does not:
+
+```bash filename="console"
+{isLoading: false, isFetching: true}  // request is in progress
+{isLoading: false, isFetching: false}  // request has completed
+```
+
+### Local loader
+
+To see a loader during development, let's add an artificial 2-second delay:
+
+```ts filename="baseApi.ts"
+export const baseApi = createApi({
+  reducerPath: "baseApi",
+  tagTypes: ["Playlist"],
+  baseQuery: async (args, api, extraOptions) => {
+    await new Promise((resolve) => setTimeout(resolve, 2000)) // artificial delay
+
+    return fetchBaseQuery({
+      baseUrl: import.meta.env.VITE_BASE_URL,
+      headers: {
+        "API-KEY": import.meta.env.VITE_API_KEY,
+      },
+      prepareHeaders: (headers) => {
+        headers.set("Authorization", `Bearer ${import.meta.env.VITE_ACCESS_TOKEN}`)
+        return headers
+      },
+    })(args, api, extraOptions)
+  },
+  endpoints: () => ({}),
+})
+```
+
+On the first load, we will use the `isLoading` property to display a `Skeleton`:
+
+```tsx filename="PlaylistsPage.tsx" /isLoading/ /isFetching/
+export const PlaylistsPage = () => {
+  /*...*/
+
+  if (isLoading) return <h1>Skeleton loader...</h1>
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <input type="search" placeholder={"Search playlist by title"} onChange={searchPlaylistHandler} />
+      <PlaylistsList playlists={data?.data || []} isPlaylistsLoading={isLoading} />
+      {isFetching && <LinearProgress />}
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+<Callout type={'info'} emoji={'🔗'}>
+
+We won't implement the skeleton right now, since we're not focusing on layout at the moment. But as a homework
+assignment, you can implement it yourself using the [react loading
+skeleton](https://www.npmjs.com/package/react-loading-skeleton) library.
+
+</Callout>
+
+During pagination, use the `isFetching` property to show a `LinearProgress`:
+
+```tsx filename="PlaylistsPage.tsx" /isLoading/ /isFetching/
+export const PlaylistsPage = () => {
+  /*...*/
+
+  if (isLoading) return <h1>Skeleton loader...</h1>
+
+  return (
+    <div className={s.container}>
+      <h1>Playlists page</h1>
+      <CreatePlaylistForm />
+      <input type="search" placeholder={"Search playlist by title"} onChange={searchPlaylistHandler} />
+      <PlaylistsList playlists={data?.data || []} isPlaylistsLoading={isLoading} />
+      {isFetching && <LinearProgress />}
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+- `common/components/LinearProgress/LinearProgress.tsx`
+
+```tsx filename="LinearProgress.tsx"
+import s from "./LinearProgress.module.css"
+
+type Props = {
+  height?: number
+}
+
+export const LinearProgress = ({ height = 4 }: Props) => {
+  return (
+    <div className={s.root} style={{ height }}>
+      <div className={`${s.bar} ${s.indeterminate1}`} />
+      <div className={`${s.bar} ${s.indeterminate2}`} />
+    </div>
+  )
+}
+```
+
+- `common/components/LinearProgress/LinearProgress.module.css`
+
+```css filename="LinearProgress.module.css"
+.root {
+  background: #23272f;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.bar {
+  height: 100%;
+  background: #ddd;
+  position: absolute;
+}
+
+@keyframes indeterminate1 {
+  0% {
+    left: -35%;
+    right: 100%;
+  }
+  60% {
+    left: 100%;
+    right: -90%;
+  }
+  100% {
+    left: 100%;
+    right: -90%;
+  }
+}
+
+@keyframes indeterminate2 {
+  0% {
+    left: -200%;
+    right: 100%;
+  }
+  60% {
+    left: 107%;
+    right: -8%;
+  }
+  100% {
+    left: 107%;
+    right: -8%;
+  }
+}
+
+.indeterminate1 {
+  animation: indeterminate1 2.1s cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite;
+}
+
+.indeterminate2 {
+  animation: indeterminate2 2.1s cubic-bezier(0.165, 0.84, 0.44, 1) infinite;
+}
+```
+
+**Result:** we've figured out how to display loading for `PlaylistsPage` 🚀
+
+## Global loader
+
+We implemented loading indicators only for fetching playlists. But we also need to show a loading indicator when adding, deleting, or editing a playlist—and later for all CRUD operations on other pages.
+
+Accordingly, we'd like to have some kind of global loading indicator.
+
+There are several ways to implement such a `loader`:
+
+- write custom `middleware`
+- create a `slice` and use `builder.addMatcher`
+- write a custom hook `useGlobalLoading`
+
+Let's choose the simplest but working approach. We'll write a custom hook `useGlobalLoading`.
+
+### useGlobalLoading
+
+- `common/hooks/useGlobalLoading.ts`
+
+```ts filename="useGlobalLoading.ts"
+import type { RootState } from "@/app/model/store.ts"
+import { useSelector } from "react-redux"
+
+export const useGlobalLoading = () => {
+  return useSelector((state: RootState) => {
+    // Get all active requests from RTK Query API
+    const queries = Object.values(state.baseApi.queries || {})
+    const mutations = Object.values(state.baseApi.mutations || {})
+
+    // Check if there are any active requests (status 'pending')
+    const hasActiveQueries = queries.some((query) => query?.status === "pending")
+    const hasActiveMutations = mutations.some((mutation) => mutation?.status === "pending")
+
+    return hasActiveQueries || hasActiveMutations
+  })
+}
+```
+
+- `store.ts`
+
+```ts filename="store.ts" {5}
+export const store = configureStore({
+  /*...*/
+})
+
+export type RootState = ReturnType<typeof store.getState>
+```
+
+- `App.tsx`
+
+```tsx filename="App.tsx" {2,7}
+export const App = () => {
+  const isGlobalLoading = useGlobalLoading()
+
+  return (
+    <>
+      <Header />
+      {isGlobalLoading && <LinearProgress />}
+      <div className={s.layout}>
+        <Routing />
+      </div>
+      <ToastContainer />
+    </>
+  )
+}
+```
+
+<Callout type={"warning"}>
+  Remove `isFetching` from the `PlaylistsPage.tsx` component, since all requests are now handled globally.
+</Callout>
+
+**Result:** now a `LinearProgress` will be displayed for every request 🚀
+
+### Endpoint exceptions
+
+If we want to exclude certain endpoints, we simply add them to the `excludedEndpoints` array:
+
+```ts filename="useGlobalLoading.ts" {1-5, 15, 19}
+// List of endpoints to exclude from the global indicator
+const excludedEndpoints = [
+  playlistsApi.endpoints.fetchPlaylists.name,
+  // You can add other endpoints here if needed
+]
+
+export const useGlobalLoading = () => {
+  return useSelector((state: RootState) => {
+    // Get all active requests from RTK Query API
+    const queries = Object.values(state.baseApi.queries || {})
+    const mutations = Object.values(state.baseApi.mutations || {})
+
+    // Check if there are any active requests (status 'pending'), excluding specified endpoints
+    const hasActiveQueries = queries.some((query) => {
+      return query?.status === "pending" && !excludedEndpoints.includes(query.endpointName)
+    })
+
+    const hasActiveMutations = mutations.some((mutation) => {
+      return mutation?.status === "pending" && !excludedEndpoints.includes(mutation.endpointName)
+    })
+
+    return hasActiveQueries || hasActiveMutations
+  })
+}
+```
+
+**Advantages of this approach:**
+
+- **Type Safety** -- `TypeScript` will verify that the `endpoint` exists 🚀
+- **Refactoring Safety** -- if you rename the `endpoint`, changes will be applied automatically 🚀
+- **Readability** -- it's immediately clear which endpoint is excluded 🚀
+- **Simplicity** -- no need to create separate arrays or constants 🚀
