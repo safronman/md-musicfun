@@ -1,0 +1,312 @@
+import { Callout } from "nextra/components"
+
+# 6. Working with Images
+
+## Adding a Cover
+
+Download the default image (or use your own) and place it in the `assets/images/` directory:
+
+[default-playlist-cover](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/1fdbddc4-8c66-4403-865a-ac3329541c9e_default-playlist-cover.png)
+
+### originalCover
+
+Let’s display the cover in the playlist:
+
+```tsx filename="PlaylistItem.tsx" {11-12, 16}
+import defaultCover from "@/assets/images/default-playlist-cover.png"
+import s from "./PlaylistItem.module.css"
+
+type Props = {
+  playlist: PlaylistData
+  deletePlaylist: (playlistId: string) => void
+  editPlaylist: (playlist: PlaylistData) => void
+}
+
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  const originalCover = playlist.attributes.images.main?.find((img) => img.type === "original")
+  const src = originalCover ? originalCover.url : defaultCover
+
+  return (
+    <div>
+      <img src={src} alt="cover" width="100px" className={s.cover} />
+      <div>title: {playlist.attributes.title}</div>
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+```css filename="PlaylistItem.module.css"
+.cover {
+  width: 240px;
+  height: 240px;
+  object-fit: cover;
+}
+```
+
+## useUploadPlaylistCoverMutation
+
+Implement the logic for uploading a playlist image according to the [documentation](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_uploadMainImage):
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    uploadPlaylistCover: build.mutation<Images, { playlistId: string; file: File }>({
+      query: ({ playlistId, file }) => {
+        const formData = new FormData()
+        formData.append("file", file)
+        return {
+          url: `playlists/${playlistId}/images/main`,
+          method: "post",
+          body: formData,
+        }
+      },
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+### Uploading Image Logic
+
+```tsx filename="PlaylistItem.tsx" {5, 7-25, 29-30}
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  const originalCover = playlist.attributes.images.main?.find((img) => img.type === "original")
+  const src = originalCover ? originalCover.url : defaultCover
+
+  const [uploadCover] = useUploadPlaylistCoverMutation()
+
+  const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
+    const maxSize = 5 * 1024 * 1024
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif"]
+
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (file.size > maxSize) {
+      alert(`The file is too large. Max size is ${Math.round(maxSize / 1024)} KB`)
+      return
+    }
+
+    if (!allowedTypes.includes(file.type)) {
+      alert("Only JPEG, PNG or GIF images are allowed")
+      return
+    }
+
+    uploadCover({ playlistId: playlist.id, file })
+  }
+
+  return (
+    <div>
+      <img src={src} alt="cover" width="100px" className={s.cover} />
+      <input type="file" accept="image/jpeg,image/png,image/gif" onChange={uploadCoverHandler} />
+      <div>title: {playlist.attributes.title}</div>
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+**Result:** The cover successfully uploads and displays 🚀
+
+## Deleting a Cover
+
+Implement the logic for deleting the cover according to the [documentation](https://musicfun.it-incubator.app/api#/Playlists%20Owner/PlaylistsController_deleteTrackCover):
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    /*...*/
+    deletePlaylistCover: build.mutation<void, { playlistId: string }>({
+      query: ({ playlistId }) => ({ url: `playlists/${playlistId}/images/main`, method: "delete" }),
+      invalidatesTags: ["Playlist"],
+    }),
+  }),
+})
+```
+
+```tsx filename="PlaylistItem.tsx" {6, 12-14, 20}
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  const originalCover = playlist.attributes.images.main?.find((img) => img.type === "original")
+  const src = originalCover ? originalCover.url : defaultCover
+
+  const [uploadCover] = useUploadPlaylistCoverMutation()
+  const [deleteCover] = useDeletePlaylistCoverMutation()
+
+  const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
+    /*...*/
+  }
+
+  const deleteCoverHandler = () => {
+    deleteCover({ playlistId: playlist.id })
+  }
+
+  return (
+    <div>
+      <img src={src} alt="cover" width="100px" className={s.cover} />
+      <input type="file" accept="image/jpeg,image/png,image/gif" onChange={uploadCoverHandler} />
+      {originalCover && <button onClick={deleteCoverHandler}>delete cover</button>}
+
+      {/*...*/}
+    </div>
+  )
+}
+```
+
+**Result:** The cover is removed 🚀
+
+## Refactoring
+
+### Decomposition
+
+- `PlaylistCover.tsx`
+
+```tsx filename="PlaylistCover.tsx"
+import defaultCover from "@/assets/images/default-playlist-cover.png"
+import s from "./PlaylistCover.module.css"
+
+type Props = {
+  playlistId: string
+  images: Images
+}
+
+export const PlaylistCover = ({ images, playlistId }: Props) => {
+  const originalCover = images.main?.find((img) => img.type === "original")
+  const src = originalCover ? originalCover.url : defaultCover
+
+  const [uploadCover] = useUploadPlaylistCoverMutation()
+  const [deleteCover] = useDeletePlaylistCoverMutation()
+
+  const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
+    const maxSize = 5 * 1024 * 1024
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif"]
+
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (file.size > maxSize) {
+      alert(`The file is too large. Max size is ${Math.round(maxSize / 1024)} KB`)
+    }
+
+    if (!allowedTypes.includes(file.type)) {
+      alert("Only JPEG, PNG or GIF images are allowed")
+    }
+
+    uploadCover({ playlistId, file })
+  }
+
+  const deleteCoverHandler = () => deleteCover({ playlistId })
+
+  return (
+    <div>
+      <img src={src} alt="cover" width="100px" className={s.cover} />
+      <input type="file" accept="image/jpeg,image/png,image/gif" onChange={uploadCoverHandler} />
+      {originalCover && <button onClick={deleteCoverHandler}>delete cover</button>}
+    </div>
+  )
+}
+```
+
+- `PlaylistDescription.tsx`
+
+<Callout type={"warning"}>Move the cover styles from `PlaylistItem.module.css` to `PlaylistCover.module.css`</Callout>
+
+```tsx filename="PlaylistDescription.tsx"
+import s from "./PlaylistDescription.module.css"
+
+type Props = {
+  attributes: PlaylistAttributes
+}
+
+export const PlaylistDescription = ({ attributes }: Props) => {
+  return (
+    <>
+      <div className={s.title}>title: {attributes.title}</div>
+      <div className={s.description}>description: {attributes.description}</div>
+      <div className={s.user}>userName: {attributes.user.name}</div>
+    </>
+  )
+}
+```
+
+- `PlaylistItem.tsx`
+
+```tsx filename="PlaylistItem.tsx"
+import { PlaylistCover } from "./PlaylistCover"
+import { PlaylistDescription } from "./PlaylistDescription"
+
+type Props = {
+  playlist: PlaylistData
+  deletePlaylist: (playlistId: string) => void
+  editPlaylist: (playlist: PlaylistData) => void
+}
+
+export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) => {
+  return (
+    <div>
+      <PlaylistCover playlistId={playlist.id} images={playlist.attributes.images} />
+      <PlaylistDescription attributes={playlist.attributes} />
+      <button onClick={() => deletePlaylist(playlist.id)}>delete</button>
+      <button onClick={() => editPlaylist(playlist)}>update</button>
+    </div>
+  )
+}
+```
+
+**Result:** Refactoring complete. The code works 🚀
+
+### React Toastify
+
+Replace `alert` with a polished notification. Install the notification library [react-toastify](https://www.npmjs.com/package/react-toastify):
+
+```bash filename="Terminal"
+pnpm add react-toastify
+```
+
+- `App.tsx`
+
+```tsx filename="App.tsx"
+import { ToastContainer } from "react-toastify"
+import "react-toastify/dist/ReactToastify.css"
+
+export const App = () => {
+  return (
+    <>
+      <Header />
+      <div className={s.layout}>
+        <Routing />
+      </div>
+      <ToastContainer />
+    </>
+  )
+}
+```
+
+- `PlaylistCover.tsx`
+
+```tsx filename="PlaylistCover.tsx" {10, 14}
+import { toast } from "react-toastify"
+
+export const PlaylistCover = ({ images, playlistId }: Props) => {
+  /*...*/
+
+  const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
+    /*...*/
+
+    if (file.size > maxSize) {
+      toast(`The file is too large (max. ${Math.round(maxSize / 1024)} KB)`, { type: "error", theme: "colored" })
+    }
+
+    if (!allowedTypes.includes(file.type)) {
+      toast("Only JPEG, PNG or GIF images are allowed", { type: "error", theme: "colored" })
+    }
+
+    uploadCover({ playlistId, file })
+  }
+
+  /*...*/
+}
+```
+
+**Result:** You get a sleek toast notification 🚀
