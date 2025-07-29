@@ -2,13 +2,21 @@ import { Callout } from "nextra/components"
 
 # 16. Streaming update (websokets)
 
+Вебсокеты — это технология, которая позволяет устанавливать постоянное двустороннее соединение между клиентом
+(обычно браузером) и сервером.
+
+В отличие от `HTTP‑запросов`, где клиент инициирует каждый запрос, при `WebSocket` соединении обе стороны могут в
+реальном времени отправлять и получать данные, без необходимости заново открывать соединение.
+
+**Простой пример:**
+
+- **HTTP**: клиент → сервер → ответ → соединение закрывается.
+- **WebSocket**: клиент ↔ сервер (открыто постоянное соединение, и обе стороны могут обмениваться сообщениями когда
+  угодно).
+
 <Callout type={"info"} emoji={"🔗"}>
 
 - [Musicfun WebSocket документация](https://musicfun.it-incubator.app/async-api)
-
-- [Streaming Updates](https://redux-toolkit.js.org/rtk-query/usage/streaming-updates)
-
-- [onCacheEntryAdded](https://redux-toolkit.js.org/rtk-query/api/createApi#oncacheentryadded)
 
 </Callout>
 
@@ -18,13 +26,16 @@ import { Callout } from "nextra/components"
 И хотелось бы об этом знать сразу же без перезагрузки увидеть новый плейлист. Для этого будем использовать библиотеку
 [socket.io](https://socket.io/)
 
+`Socket.IO` — это библиотека для реального времени, которая использует `WebSocket` и `fallback‑технологии`, предоставляя
+удобный API для двусторонней связи между клиентом и сервером.
+
 Установим библиотеку [socket.io-client](https://www.npmjs.com/package/socket.io-client)
 
 ```bash filename="Terminal"
 pnpm add socket.io-client
 ```
 
-Реализуем нашу задачу
+Реализуем нашу задачу согласно [документации](https://redux-toolkit.js.org/rtk-query/usage/streaming-updates)
 
 - `playlistsApi.types.ts`
 
@@ -41,7 +52,11 @@ export type PlaylistCreatedEvent = {
 - `playlistsApi.ts`
 
 <Callout type={"info"} emoji={"🔗"}>
-  - [path](https://socket.io/docs/v4/client-options/#path)
+
+- [onCacheEntryAdded](https://redux-toolkit.js.org/rtk-query/api/createApi#oncacheentryadded)
+
+- [path](https://socket.io/docs/v4/client-options/#path)
+
 </Callout>
 
 ```ts filename="playlistsApi.ts" {6-36}
