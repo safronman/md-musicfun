@@ -1,0 +1,340 @@
+import { Callout } from "nextra/components"
+
+# 16. Streaming update (websockets)
+
+WebSockets is a technology that allows establishing a persistent bidirectional connection between a client
+(usually a browser) and a server.
+
+Unlike `HTTP requests`, where the client initiates each request, with `WebSocket` connection both sides can
+send and receive data in real time, without the need to reopen the connection.
+
+**Simple example:**
+
+- **HTTP**: client → server → response → connection closes.
+- **WebSocket**: client ↔ server (persistent connection is open, and both sides can exchange messages whenever
+  they want).
+
+<Callout type={"info"} emoji={"🔗"}>
+
+- [Musicfun WebSocket documentation](https://musicfun.it-incubator.app/async-api)
+
+</Callout>
+
+## Playlist created
+
+When we are on the public playlists page, any user can create a new playlist.
+And we would like to know about it immediately and see the new playlist without reloading. For this we will use the
+[socket.io](https://socket.io/) library
+
+`Socket.IO` is a real-time library that uses `WebSocket` and `fallback technologies`, providing
+a convenient API for bidirectional communication between client and server.
+
+Let's install the [socket.io-client](https://www.npmjs.com/package/socket.io-client) library
+
+```bash filename="Terminal"
+pnpm add socket.io-client
+```
+
+Let's implement our task according to the [documentation](https://redux-toolkit.js.org/rtk-query/usage/streaming-updates)
+
+- `playlistsApi.types.ts`
+
+```ts filename="playlistsApi.types.ts"
+// WebSocket Events
+export type PlaylistCreatedEvent = {
+  type: "tracks.playlist-created"
+  payload: {
+    data: PlaylistData
+  }
+}
+```
+
+- `playlistsApi.ts`
+
+<Callout type={"info"} emoji={"🔗"}>
+
+- [onCacheEntryAdded](https://redux-toolkit.js.org/rtk-query/api/createApi#oncacheentryadded)
+
+- [path](https://socket.io/docs/v4/client-options/#path)
+
+</Callout>
+
+```ts filename="playlistsApi.ts" {6-36}
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchPlaylists: build.query({
+      query: (params: FetchPlaylistsArgs) => ({ url: `playlists`, params }),
+      ...withZodCatch(playlistsResponseSchema),
+      keepUnusedDataFor: 0, // 👈 cleanup immediately after unmount
+      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
+        // Wait for the initial query to resolve before proceeding
+        await cacheDataLoaded
+
+        // Create Socket.IO connection to the server
+        const socket: Socket = io("https://musicfun.it-incubator.app", {
+          path: "/api/1.0/ws", // custom path for Socket.IO server (default is '/socket.io/')
+          transports: ["websocket"],
+        })
+
+        socket.on("connect", () => console.log("✅ Connected to server"))
+
+        socket.on("tracks.playlist-created", (msg: PlaylistCreatedEvent) => {
+          // 1 variant
+          const newPlaylist = msg.payload.data
+          updateCachedData((state) => {
+            state.data.pop()
+            state.data.unshift(newPlaylist)
+            state.meta.totalCount = state.meta.totalCount + 1
+            state.meta.pagesCount = Math.ceil(state.meta.totalCount / state.meta.pageSize)
+          })
+          // 2 variant
+          // dispatch(playlistsApi.util.invalidateTags(['Playlist']))
+        })
+
+        // CacheEntryRemoved will resolve when the cache subscription is no longer active
+        await cacheEntryRemoved
+        // Perform cleanup steps once the `cacheEntryRemoved` promise resolves
+        socket.on("disconnect", () => console.log("❌ Connection destroyed"))
+      },
+      providesTags: ["Playlist"],
+    }),
+    /*...*/
+  }),
+})
+```
+
+**Result:** when creating a new playlist, a new playlist will be automatically added 🚀
+
+## Extracting logic
+
+If we need to implement websockets for another event, we will have to duplicate code and open multiple
+connections, so let's immediately refactor and decompose the code
+
+- `.env`
+
+```env filename=".env" {3}
+VITE_BASE_URL=https://musicfun.it-incubator.app/api/1.0
+VITE_DOMAIN_ADDRESS=http://localhost:3000
+VITE_SOCKET_URL=https://musicfun.it-incubator.app
+VITE_API_KEY=
+```
+
+- `common/constants.ts`
+
+```ts filename="constants.ts"
+/*...*/
+
+export const SOCKET_EVENTS = {
+  TRACK_PUBLISHED: "tracks.track-published",
+  TRACK_ADDED_TO_PLAYLIST: "tracks.track-added-to-playlist",
+  TRACK_LIKED: "tracks.track-liked",
+  TRACK_IMAGE_PROCESSED: "tracks.track-image-processed",
+  PLAYLIST_IMAGE_PROCESSED: "tracks.playlist-image-processed",
+  PLAYLIST_CREATED: "tracks.playlist-created",
+  PLAYLIST_UPDATED: "tracks.playlist-updated",
+} as const
+
+export type SocketEvents = (typeof SOCKET_EVENTS)[keyof typeof SOCKET_EVENTS]
+```
+
+Let's extract socket connection to a common module
+
+- `common/socket/getSocket.ts`
+
+```ts filename="getSocket.ts"
+import { io, Socket } from "socket.io-client"
+
+let socket: Socket | null = null
+
+export const getSocket = (): Socket => {
+  if (!socket) {
+    socket = io(import.meta.env.VITE_SOCKET_URL, {
+      path: "/api/1.0/ws",
+      transports: ["websocket"],
+    })
+
+    socket.on("connect", () => console.log("✅ Connected to server"))
+    socket.on("disconnect", () => console.log("❌ Disconnected from server"))
+  }
+  return socket
+}
+```
+
+Let's create a universal event subscriber
+
+- `common/socket/subscribeToEvent.ts`
+
+```ts filename="subscribeToEvent.ts"
+import type { SocketEvents } from "@/common/constants"
+import { getSocket } from "./getSocket.ts"
+import type { Socket } from "socket.io-client"
+
+type Callback<T> = (data: T) => void
+
+export const subscribeToEvent = <T>(event: SocketEvents, callback: Callback<T>) => {
+  const socket: Socket = getSocket()
+  socket.on(event, callback)
+
+  return () => {
+    socket.off(event, callback)
+  }
+}
+```
+
+Let's implement the code in `playlistsApi.ts`
+
+```ts filename="playlistsApi.ts"
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchPlaylists: build.query({
+      query: (params: FetchPlaylistsArgs) => ({ url: `playlists`, params }),
+      ...withZodCatch(playlistsResponseSchema),
+      keepUnusedDataFor: 0, // 👈 cleanup immediately after unmount
+      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
+        // Wait for the initial query to resolve before proceeding
+        await cacheDataLoaded
+
+        const unsubscribe = subscribeToEvent<PlaylistCreatedEvent>(SOCKET_EVENTS.PLAYLIST_CREATED, (msg) => {
+          const newPlaylist = msg.payload.data
+          updateCachedData((state) => {
+            state.data.pop()
+            state.data.unshift(newPlaylist)
+            state.meta.totalCount = state.meta.totalCount + 1
+            state.meta.pagesCount = Math.ceil(state.meta.totalCount / state.meta.pageSize)
+          })
+        })
+
+        // CacheEntryRemoved will resolve when the cache subscription is no longer active
+        await cacheEntryRemoved
+        unsubscribe()
+      },
+      providesTags: ["Playlist"],
+    }),
+    /*...*/
+  }),
+})
+```
+
+**Result:** code refactored 🚀
+
+## Playlist updated
+
+Let's implement listening to another event: [playlist update](https://musicfun.it-incubator.app/async-api#operation-publish-tracks.playlist-updated)
+
+- `playlistsApi.types.ts`
+
+```ts filename="playlistsApi.types.ts"
+// WebSocket Events
+/*...*/
+
+export type PlaylistUpdatedEvent = {
+  type: "tracks.playlist-updated"
+  payload: {
+    data: PlaylistData
+  }
+}
+```
+
+- `playlistsApi.ts`
+
+```ts filename="playlistsApi.ts" {21-29, 34}
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchPlaylists: build.query({
+      query: (params: FetchPlaylistsArgs) => ({ url: `playlists`, params }),
+      ...withZodCatch(playlistsResponseSchema),
+      keepUnusedDataFor: 0, // 👈 cleanup immediately after unmount
+      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
+        // Wait for the initial query to resolve before proceeding
+        await cacheDataLoaded
+
+        const unsubscribe = subscribeToEvent<PlaylistCreatedEvent>(SOCKET_EVENTS.PLAYLIST_CREATED, (msg) => {
+          const newPlaylist = msg.payload.data
+          updateCachedData((state) => {
+            state.data.pop()
+            state.data.unshift(newPlaylist)
+            state.meta.totalCount = state.meta.totalCount + 1
+            state.meta.pagesCount = Math.ceil(state.meta.totalCount / state.meta.pageSize)
+          })
+        })
+
+        const unsubscribe2 = subscribeToEvent<PlaylistUpdatedEvent>(SOCKET_EVENTS.PLAYLIST_UPDATED, (msg) => {
+          const newPlaylist = msg.payload.data
+          updateCachedData((state) => {
+            const index = state.data.findIndex((playlist) => playlist.id === newPlaylist.id)
+            if (index !== -1) {
+              state.data[index] = { ...state.data[index], ...newPlaylist }
+            }
+          })
+        })
+
+        // CacheEntryRemoved will resolve when the cache subscription is no longer active
+        await cacheEntryRemoved
+        unsubscribe()
+        unsubscribe2()
+      },
+      providesTags: ["Playlist"],
+    }),
+    /*...*/
+  }),
+})
+```
+
+**Result:** when a playlist changes, the user will receive updated information via websockets 🚀
+
+## Array of unsubscriptions
+
+To make working with subscriptions and unsubscriptions cleaner and more scalable, we will use an array of unsubscriptions.
+
+We will use the simplest way — store unsubscriptions in an array and then iterate through them during cleanup:
+
+- `playlistsApi.ts`
+
+```ts filename="playlistsApi.ts" {11-30, 34}
+export const playlistsApi = baseApi.injectEndpoints({
+  endpoints: (build) => ({
+    fetchPlaylists: build.query({
+      query: (params: FetchPlaylistsArgs) => ({ url: `playlists`, params }),
+      ...withZodCatch(playlistsResponseSchema),
+      keepUnusedDataFor: 0, // 👈 cleanup immediately after unmount
+      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
+        // Wait for the initial query to resolve before proceeding
+        await cacheDataLoaded
+
+        const unsubscribes = [
+          subscribeToEvent<PlaylistCreatedEvent>(SOCKET_EVENTS.PLAYLIST_CREATED, (msg) => {
+            const newPlaylist = msg.payload.data
+            updateCachedData((state) => {
+              state.data.pop()
+              state.data.unshift(newPlaylist)
+              state.meta.totalCount = state.meta.totalCount + 1
+              state.meta.pagesCount = Math.ceil(state.meta.totalCount / state.meta.pageSize)
+            })
+          }),
+          subscribeToEvent<PlaylistUpdatedEvent>(SOCKET_EVENTS.PLAYLIST_UPDATED, (msg) => {
+            const newPlaylist = msg.payload.data
+            updateCachedData((state) => {
+              const index = state.data.findIndex((playlist) => playlist.id === newPlaylist.id)
+              if (index !== -1) {
+                state.data[index] = { ...state.data[index], ...newPlaylist }
+              }
+            })
+          }),
+        ]
+
+        // CacheEntryRemoved will resolve when the cache subscription is no longer active
+        await cacheEntryRemoved
+        unsubscribes.forEach((unsubscribe) => unsubscribe())
+      },
+      providesTags: ["Playlist"],
+    }),
+    /*...*/
+  }),
+})
+```
+
+**Result:**
+
+- Clean and readable 🚀
+- Easy to add new subscriptions 🚀
+- No need to create unsubscribe1, unsubscribe2, etc. 🚀
