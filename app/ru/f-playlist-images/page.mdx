@@ -6,7 +6,7 @@ import { Callout } from "nextra/components"
 
 Скачайте картинку по умолчанию (можно использовать свое изображение) и положите ее в директорию (`assets/images/`)
 
-[default-playlist-cover](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/1fdbddc4-8c66-4403-865a-ac3329541c9e_default-playlist-cover.png)
+Нажмите на изображение [default-playlist-cover](https://production-it-incubator.s3.eu-central-1.amazonaws.com/file-manager/Image/1fdbddc4-8c66-4403-865a-ac3329541c9e_default-playlist-cover.png), чтобы скачать
 
 ### originalCover
 
@@ -78,19 +78,19 @@ export const PlaylistItem = ({ playlist, editPlaylist, deletePlaylist }: Props) 
   const [uploadCover] = useUploadPlaylistCoverMutation()
 
   const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
-    const maxSize = 5 * 1024 * 1024
+    const maxSize = 1024 * 1024 // 1 MB
     const allowedTypes = ["image/jpeg", "image/png", "image/gif"]
 
-    const file = event.target.files?.[0]
+    const file = event.target.files?.length && event.target.files[0]
     if (!file) return
-
-    if (file.size > maxSize) {
-      alert(`The file is too large. Max size is ${Math.round(maxSize / 1024)} KB`)
-      return
-    }
 
     if (!allowedTypes.includes(file.type)) {
       alert("Only JPEG, PNG or GIF images are allowed")
+      return
+    }
+
+    if (file.size > maxSize) {
+      alert(`The file is too large. Max size is ${Math.round(maxSize / 1024)} KB`)
       return
     }
 
@@ -176,18 +176,18 @@ export const PlaylistCover = ({ images, playlistId }: Props) => {
   const [deleteCover] = useDeletePlaylistCoverMutation()
 
   const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
-    const maxSize = 5 * 1024 * 1024
+    const maxSize = 1024 * 1024 // 1 MB
     const allowedTypes = ["image/jpeg", "image/png", "image/gif"]
 
-    const file = event.target.files?.[0]
+    const file = event.target.files?.length && event.target.files[0]
     if (!file) return
-
-    if (file.size > maxSize) {
-      alert(`The file is too large. Max size is ${Math.round(maxSize / 1024)} KB`)
-    }
 
     if (!allowedTypes.includes(file.type)) {
       alert("Only JPEG, PNG or GIF images are allowed")
+    }
+
+    if (file.size > maxSize) {
+      alert(`The file is too large. Max size is ${Math.round(maxSize / 1024)} KB`)
     }
 
     uploadCover({ playlistId, file })
@@ -262,9 +262,8 @@ pnpm add react-toastify
 
 - `App.tsx`
 
-```tsx filename="App.tsx"
+```tsx filename="App.tsx" {10}
 import { ToastContainer } from "react-toastify"
-import "react-toastify/dist/ReactToastify.css"
 
 export const App = () => {
   return (
@@ -288,12 +287,12 @@ export const PlaylistCover = ({ images, playlistId }: Props) => {
   const uploadCoverHandler = (event: ChangeEvent<HTMLInputElement>) => {
     /*...*/
 
-    if (file.size > maxSize) {
-      toast(`The file is too large (max. ${Math.round(maxSize / 1024)} KB)`, { type: "error", theme: "colored" })
-    }
-
     if (!allowedTypes.includes(file.type)) {
       toast("Only JPEG, PNG or GIF images are allowed", { type: "error", theme: "colored" })
+    }
+
+    if (file.size > maxSize) {
+      toast(`The file is too large (max. ${Math.round(maxSize / 1024)} KB)`, { type: "error", theme: "colored" })
     }
 
     uploadCover({ playlistId, file })
